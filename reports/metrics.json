@@ -248,6 +248,9 @@
     "mean_alt_increase_naive_min": 1.0273730684326712,
     "mean_alt_increase_quota_min": 0.7432671081677704,
     "mean_p_star": 0.2635761589403974,
-    "quota_binding_pushes": 41
+    "quota_binding_pushes": 41,
+    "n_workdays": 25,
+    "veh_hours_saved_quota": 2024.475,
+    "veh_hours_saved_naive": 1774.3783333333333
   }
 }

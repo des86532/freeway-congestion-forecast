@@ -55,7 +55,8 @@ def make_frames(lk: Lookup, capacity: dict[str, float], ts_list: list[pd.Timesta
         if dec.push:
             last_push = ts.to_pydatetime()
         dd = dec.to_dict()
-        for k in ("saving_naive_s", "saving_quota_s", "alt_tt_naive_s", "alt_tt_quota_s", "tt_slow_s", "tt_fast_s"):
+        for k in ("saving_naive_s", "saving_quota_s", "alt_tt_naive_s", "alt_tt_quota_s", "tt_slow_s", "tt_fast_s",
+                  "sys_saving_quota_veh_s", "sys_saving_naive_veh_s"):
             dd[k] = _num(dd[k], 0)
         dd["p_star"] = _num(dd["p_star"], 2)
         frames.append({

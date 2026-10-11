@@ -251,7 +251,9 @@ function renderMetrics(m) {
     <tr><td>替代路線行車時間增加：全部改道（naive，分鐘）</td><td>${fmt(dv.mean_alt_increase_naive_min, 2)}</td></tr>
     <tr><td>替代路線行車時間增加：配額（分鐘）</td><td>${fmt(dv.mean_alt_increase_quota_min, 2)}</td></tr>
     <tr><td>平均 p*（上限 0.30）</td><td>${fmt(dv.mean_p_star, 3)}</td></tr>
-    <tr><td>配額實際生效（p* &lt; 0.30）的推播數</td><td>${dv.quota_binding_pushes}</td></tr></table>`;
+    <tr><td>配額實際生效（p* &lt; 0.30）的推播數</td><td>${dv.quota_binding_pushes}</td></tr>
+    <tr><td>系統車輛時間節省：配額分流（車輛小時，${dv.n_workdays} 個上班日估算）</td><td>${fmt(dv.veh_hours_saved_quota, 0)}</td></tr>
+    <tr><td>系統車輛時間節省：全部改道 naive（車輛小時，估算）</td><td>${fmt(dv.veh_hours_saved_naive, 0)}</td></tr></table>`;
   box.innerHTML = h;
 }
 

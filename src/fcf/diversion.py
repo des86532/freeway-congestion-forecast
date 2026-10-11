@@ -53,14 +53,17 @@ def optimal_split(tt_slow: float, tt_fast: float, v_slow: float, v_fast: float,
         total = _split_point(p, tt_slow, tt_fast, v_slow, v_fast, c_slow, c_fast)[2]
         if total < best_total - 1e-9:  # 同分取較小 p
             best_p, best_total = p, total
-    ts_, tf_, _ = _split_point(best_p, tt_slow, tt_fast, v_slow, v_fast, c_slow, c_fast)
-    ts_n, tf_n, _ = _split_point(PENETRATION, tt_slow, tt_fast, v_slow, v_fast, c_slow, c_fast)
+    ts_, tf_, tot_q = _split_point(best_p, tt_slow, tt_fast, v_slow, v_fast, c_slow, c_fast)
+    ts_n, tf_n, tot_n = _split_point(PENETRATION, tt_slow, tt_fast, v_slow, v_fast, c_slow, c_fast)
+    tot_0 = v_slow * tt_slow + v_fast * tt_fast
     return {
         "p_star": best_p,
         "saving_quota_s": ts_ - tf_,
         "alt_tt_quota_s": tf_,
         "alt_tt_naive_s": tf_n,
         "saving_naive_after_s": ts_n - tf_n,
+        "sys_saving_quota_veh_s": tot_0 - tot_q,  # 系統總車輛時間節省（輛·秒 / 5 分鐘流量）
+        "sys_saving_naive_veh_s": tot_0 - tot_n,
     }
 
 
@@ -87,6 +90,8 @@ class Decision:
     stay_message: str | None = None
     tt_slow_s: float | None = None
     tt_fast_s: float | None = None
+    sys_saving_quota_veh_s: float | None = None
+    sys_saving_naive_veh_s: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -140,6 +145,8 @@ def decide(ts: datetime, actual_speeds: dict[str, float], pred30_speeds: dict[st
     d.saving_quota_s = sp["saving_quota_s"]
     d.alt_tt_naive_s = sp["alt_tt_naive_s"]
     d.alt_tt_quota_s = sp["alt_tt_quota_s"]
+    d.sys_saving_quota_veh_s = sp["sys_saving_quota_veh_s"]
+    d.sys_saving_naive_veh_s = sp["sys_saving_naive_veh_s"]
     if d.p_star == 0 or d.saving_quota_s < MIN_QUOTA_SAVING_S:
         d.reason = "no_benefit"
         return d

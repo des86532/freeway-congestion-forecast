@@ -122,6 +122,7 @@ def evaluate() -> None:
     # 分流模擬：TEST 期間每個上班日 06:00–10:00
     lk = Lookup(feats, preds)
     decisions = []
+    n_workdays = 0
     for day, idx in pd.Series(lk.actual.index, index=lk.actual.index).groupby(lk.actual.index.normalize()):
         if day < t_start or day > t_end:
             continue
@@ -130,6 +131,7 @@ def evaluate() -> None:
             continue
         ts_list = [t for t in idx if 6 <= t.hour < 10]
         decisions += [f["decision"] for f in make_frames(lk, capacity, ts_list)]
+        n_workdays += 1
     pushes = [x for x in decisions if x["push"]]
     reasons = pd.Series([x["reason"] for x in decisions]).value_counts().to_dict()
 
@@ -146,6 +148,10 @@ def evaluate() -> None:
         "mean_alt_increase_quota_min": mean_min([x["alt_tt_quota_s"] - x["tt_fast_s"] for x in pushes]),
         "mean_p_star": float(np.mean([x["p_star"] for x in pushes])) if pushes else None,
         "quota_binding_pushes": sum(1 for x in pushes if x["p_star"] < PENETRATION - 1e-9),
+        "n_workdays": n_workdays,
+        # 每次推播代表其後 30 分鐘冷卻期；以入口 5 分鐘流量 × 6 估算，僅含小客車
+        "veh_hours_saved_quota": sum(x["sys_saving_quota_veh_s"] for x in pushes) * 6 / 3600,
+        "veh_hours_saved_naive": sum(x["sys_saving_naive_veh_s"] for x in pushes) * 6 / 3600,
     }
 
     REPORTS.mkdir(exist_ok=True)
@@ -200,6 +206,9 @@ def render_md(m: dict) -> str:
           f"| 替代路線 TT 增加（全部訂閱用戶改道 naive，分鐘） | {_f(dv['mean_alt_increase_naive_min'], 2)} |",
           f"| 替代路線 TT 增加（配額，分鐘） | {_f(dv['mean_alt_increase_quota_min'], 2)} |",
           f"| 平均 p*（可改道比例上限為 {PENETRATION:.2f}） | {_f(dv['mean_p_star'], 3)} |",
-          f"| 配額實際生效（p* < {PENETRATION:.2f}）的推播數 | {dv['quota_binding_pushes']} |", "",
+          f"| 配額實際生效（p* < {PENETRATION:.2f}）的推播數 | {dv['quota_binding_pushes']} |",
+          f"| 上班日數 | {dv['n_workdays']} |",
+          f"| 系統車輛時間節省：配額分流（車輛小時，估算） | {_f(dv['veh_hours_saved_quota'], 0)} |",
+          f"| 系統車輛時間節省：全部訂閱用戶改道 naive（車輛小時，估算） | {_f(dv['veh_hours_saved_naive'], 0)} |", "",
           "決策原因分布：" + "、".join(f"{k}={v}" for k, v in sorted(dv["reasons"].items())), ""]
     return "\n".join(L)
