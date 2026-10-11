@@ -13,7 +13,7 @@ const LIVE = "__live__";
 
 let data = null;          // 目前載入的 replay / live JSON
 let mode = "actual";      // actual | pred
-let map, polylines = {};
+let map, polylines = {}, fitted = false;
 let chart;
 let liveTimer = null;
 
@@ -55,7 +55,11 @@ function initMap(corridor) {
     polylines[s.id] = pl;
     all.push(...s.coords);
   }
-  if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [20, 20] });
+  if (all.length && !fitted) {  // 只在第一次載入時縮放，之後保留使用者的視角
+    map.invalidateSize();
+    map.fitBounds(L.latLngBounds(all), { padding: [20, 20], animate: false });
+    fitted = true;
+  }
 }
 
 function initChart() {
@@ -244,8 +248,10 @@ function renderMetrics(m) {
     <tr><td>推播事件數</td><td>${dv.push_events}</td></tr>
     <tr><td>平均預估節省：個人最快路線（naive，分鐘）</td><td>${fmt(dv.mean_saving_naive_min, 1)}</td></tr>
     <tr><td>平均預估節省：配額分流（分鐘）</td><td>${fmt(dv.mean_saving_quota_min, 1)}</td></tr>
-    <tr><td>替代路線行車時間增加：全部改道（naive，分鐘）</td><td>${fmt(dv.mean_alt_increase_naive_min, 1)}</td></tr>
-    <tr><td>替代路線行車時間增加：配額（分鐘）</td><td>${fmt(dv.mean_alt_increase_quota_min, 1)}</td></tr></table>`;
+    <tr><td>替代路線行車時間增加：全部改道（naive，分鐘）</td><td>${fmt(dv.mean_alt_increase_naive_min, 2)}</td></tr>
+    <tr><td>替代路線行車時間增加：配額（分鐘）</td><td>${fmt(dv.mean_alt_increase_quota_min, 2)}</td></tr>
+    <tr><td>平均 p*（上限 0.30）</td><td>${fmt(dv.mean_p_star, 3)}</td></tr>
+    <tr><td>配額實際生效（p* &lt; 0.30）的推播數</td><td>${dv.quota_binding_pushes}</td></tr></table>`;
   box.innerHTML = h;
 }
 

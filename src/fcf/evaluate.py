@@ -11,6 +11,7 @@ import pandas as pd
 
 from .corridor import ENTRY_SEGMENT, ROUTES, SEG_IDS
 from .features import HORIZONS, STEP_MIN, TEST, TRAIN, build_features, targets
+from .diversion import PENETRATION
 from .replay import Lookup, make_frames
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,6 +144,8 @@ def evaluate() -> None:
         "mean_saving_quota_min": mean_min([x["saving_quota_s"] for x in pushes]),
         "mean_alt_increase_naive_min": mean_min([x["alt_tt_naive_s"] - x["tt_fast_s"] for x in pushes]),
         "mean_alt_increase_quota_min": mean_min([x["alt_tt_quota_s"] - x["tt_fast_s"] for x in pushes]),
+        "mean_p_star": float(np.mean([x["p_star"] for x in pushes])) if pushes else None,
+        "quota_binding_pushes": sum(1 for x in pushes if x["p_star"] < PENETRATION - 1e-9),
     }
 
     REPORTS.mkdir(exist_ok=True)
@@ -194,7 +197,9 @@ def render_md(m: dict) -> str:
           f"| 推播事件數 | {dv['push_events']} |",
           f"| 平均預估節省（個人最快路線 naive，未考慮回堵，分鐘） | {_f(dv['mean_saving_naive_min'], 1)} |",
           f"| 平均預估節省（配額分流，分鐘） | {_f(dv['mean_saving_quota_min'], 1)} |",
-          f"| 替代路線 TT 增加（全部訂閱用戶改道 naive，分鐘） | {_f(dv['mean_alt_increase_naive_min'], 1)} |",
-          f"| 替代路線 TT 增加（配額，分鐘） | {_f(dv['mean_alt_increase_quota_min'], 1)} |", "",
+          f"| 替代路線 TT 增加（全部訂閱用戶改道 naive，分鐘） | {_f(dv['mean_alt_increase_naive_min'], 2)} |",
+          f"| 替代路線 TT 增加（配額，分鐘） | {_f(dv['mean_alt_increase_quota_min'], 2)} |",
+          f"| 平均 p*（可改道比例上限為 {PENETRATION:.2f}） | {_f(dv['mean_p_star'], 3)} |",
+          f"| 配額實際生效（p* < {PENETRATION:.2f}）的推播數 | {dv['quota_binding_pushes']} |", "",
           "決策原因分布：" + "、".join(f"{k}={v}" for k, v in sorted(dv["reasons"].items())), ""]
     return "\n".join(L)

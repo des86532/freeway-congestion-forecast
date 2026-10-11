@@ -151,5 +151,6 @@ def decide(ts: datetime, actual_speeds: dict[str, float], pred30_speeds: dict[st
     d.push, d.reason = True, "ok"
     d.message = format_message(ts, slow, fast, SEG_BY_ID[worst.id].description,
                                pred30_speeds[worst.id], d.saving_quota_s, d.p_star)
-    d.stay_message = format_stay_message(slow, d.saving_naive_s)
+    if d.p_star < PENETRATION:  # 配額未涵蓋全部訂閱用戶時，才有「未入選」者
+        d.stay_message = format_stay_message(slow, d.saving_naive_s)
     return d
