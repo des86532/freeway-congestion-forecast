@@ -1,0 +1,7 @@
+.venv/
+data/raw/
+data/processed/
+models/
+dashboard/data/live.json
+__pycache__/
+.pytest_cache/
