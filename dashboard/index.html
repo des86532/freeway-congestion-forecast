@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>國道壅塞預測與系統最佳分流</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>國道壅塞預測與系統最佳分流 <small>湖口 → 高公局（北上）</small></h1>
+    <div class="controls">
+      <label>資料
+        <select id="source"></select>
+      </label>
+      <div class="toggle" role="group" aria-label="地圖顯示">
+        <button id="mode-actual" class="active" type="button">實際車速</button>
+        <button id="mode-pred" type="button">預測 +30 分</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="left">
+      <div id="map" aria-label="路段地圖"></div>
+      <div class="legend">
+        <span><i style="background:#2e9e4f"></i>≥80</span>
+        <span><i style="background:#e6c229"></i>60–79</span>
+        <span><i style="background:#ef8a1e"></i>40–59</span>
+        <span><i style="background:#d6372f"></i>&lt;40 km/h</span>
+        <span><i style="background:#9aa0a6"></i>無資料</span>
+      </div>
+      <div class="slider">
+        <input id="slider" type="range" min="0" max="0" value="0" aria-label="時間">
+        <output id="ts-label">--</output>
+      </div>
+    </section>
+
+    <section class="right">
+      <div class="card">
+        <h2>推播</h2>
+        <div id="push"></div>
+      </div>
+      <div class="card">
+        <h2>路線旅行時間（分鐘）</h2>
+        <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      </div>
+    </section>
+  </main>
+
+  <section class="card metrics">
+    <h2>模型評估指標</h2>
+    <div id="metrics">載入中…</div>
+  </section>
+
+  <footer>資料來源：交通部高速公路局「交通資料庫」</footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="app.js"></script>
+</body>
+</html>
