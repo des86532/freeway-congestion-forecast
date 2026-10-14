@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .corridor import ENTRY_SEGMENT, ROUTES, SEG_IDS, SEGMENTS, route_segments
-from .diversion import MIN_SPEED_FOR_TT, decide, route_travel_time
+from .diversion import CONGESTED_KMH, MIN_SPEED_FOR_TT, decide, route_travel_time
 from .features import HORIZONS, TEST, build_features
 from .http import BASE
 
@@ -31,12 +31,16 @@ def _row(wide: pd.DataFrame, ts) -> dict[str, float | None]:
 
 
 class Lookup:
-    """由 build_features 輸出與 predict 結果建立的 (ts × seg) 寬表。"""
+    """由 build_features 輸出與 predict 結果建立的 (ts × seg) 寬表。
+    probs 為各時距的壅塞機率，thresholds 為各時距的預警門檻。"""
 
-    def __init__(self, feats: pd.DataFrame, preds: dict[int, pd.Series]):
+    def __init__(self, feats: pd.DataFrame, preds: dict[int, pd.Series],
+                 probs: dict[int, pd.Series], thresholds: dict[int, float]):
         self.actual = feats["speed_lag0"].unstack("seg_")[SEG_IDS]
         self.volume = feats["volume_lag0"].unstack("seg_")[SEG_IDS]
         self.pred = {h: p.unstack("seg_")[SEG_IDS] for h, p in preds.items()}
+        self.prob = {h: p.unstack("seg_")[SEG_IDS] for h, p in probs.items()}
+        self.thresholds = thresholds
 
 
 def _clean_speeds(d: dict[str, float | None]) -> dict[str, float]:
@@ -55,6 +59,13 @@ def make_frames(lk: Lookup, capacity: dict[str, float], ts_list: list[pd.Timesta
         if dec.push:
             last_push = ts.to_pydatetime()
         dd = dec.to_dict()
+        prob = {str(h): {s: _num(v, 2) for s, v in w.loc[ts].items()} for h, w in lk.prob.items()}
+        raw_actual = lk.actual.loc[ts]
+        alarm = {  # 當下未壅塞且壅塞機率達門檻的路段（依 SEG_IDS 順序）
+            str(h): [s for s in SEG_IDS
+                     if raw_actual[s] >= CONGESTED_KMH and w.at[ts, s] >= lk.thresholds[h]]
+            for h, w in lk.prob.items()
+        }
         for k in ("saving_naive_s", "saving_quota_s", "alt_tt_naive_s", "alt_tt_quota_s", "tt_slow_s", "tt_fast_s",
                   "sys_saving_quota_veh_s", "sys_saving_naive_veh_s"):
             dd[k] = _num(dd[k], 0)
@@ -68,6 +79,8 @@ def make_frames(lk: Lookup, capacity: dict[str, float], ts_list: list[pd.Timesta
                 "pred30": {r: _num(route_travel_time(p30, r), 0) for r in ROUTES},
             },
             "decision": dd,
+            "prob": prob,
+            "alarm": alarm,
         })
     return frames
 
@@ -87,7 +100,8 @@ def _parse_hm(s: str) -> time:
 
 
 def replay(date, start: str = "06:00", end: str = "10:00") -> Path:
-    from .model import load_capacity, load_dataset, load_models, load_profile, predict_from_features
+    from .model import (load_capacity, load_classifiers, load_dataset, load_models, load_profile,
+                        predict_from_features, predict_proba_from_features)
 
     t0 = datetime.combine(date, _parse_hm(start))
     t1 = datetime.combine(date, _parse_hm(end))
@@ -97,7 +111,9 @@ def replay(date, start: str = "06:00", end: str = "10:00") -> Path:
         raise SystemExit(f"no data for {date}")
     feats = build_features(df, load_profile())
     preds = predict_from_features(feats, load_models())
-    lk = Lookup(feats, preds)
+    clfs = load_classifiers()
+    probs = predict_proba_from_features(feats, clfs)
+    lk = Lookup(feats, preds, probs, {h: c["threshold"] for h, c in clfs.items()})
     ts_list = [ts for ts in lk.actual.index if t0 <= ts.to_pydatetime() <= t1]
     frames = make_frames(lk, load_capacity(), ts_list)
     out = {"date": str(date), "corridor": corridor_json(), "frames": frames}

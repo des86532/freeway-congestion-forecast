@@ -168,6 +168,26 @@ function renderPush(f) {
   }
 }
 
+function renderAlarm(f) {
+  const box = $("alarm");
+  box.replaceChildren();
+  if (!f.alarm) {
+    const p = document.createElement("div");
+    p.className = "reason";
+    p.textContent = "此資料無預警欄位：請重新執行 uv run fcf replay";
+    box.append(p);
+    return;
+  }
+  const segs = Object.fromEntries(data.corridor.segments.map((s) => [s.id, s]));
+  for (const h of ["15", "30", "60"]) {
+    const items = (f.alarm[h] || []).map((id) => `${ROUTE_NAMES[segs[id].route]} ${segs[id].description}（${Math.round(f.prob[h][id] * 100)}%）`);
+    const row = document.createElement("div");
+    row.className = "reason";
+    row.textContent = `+${h} 分：${items.length ? items.join("、") : "無"}`;
+    box.append(row);
+  }
+}
+
 function render() {
   if (!data || !data.frames.length) return;
   const i = Number($("slider").value);
@@ -179,9 +199,12 @@ function render() {
     if (!pl) continue;
     const v = speeds[s.id];
     pl.setStyle({ color: speedColor(v) });
-    pl.setTooltipContent(`${ROUTE_NAMES[s.route]} ${s.description}<br>${v === null || v === undefined ? "無資料" : v.toFixed(0) + " km/h"}`);
+    const p30 = mode === "pred" && f.prob ? f.prob["30"][s.id] : null;
+    const probLine = p30 === null || p30 === undefined ? "" : `<br>+30 分壅塞機率 ${Math.round(p30 * 100)}%`;
+    pl.setTooltipContent(`${ROUTE_NAMES[s.route]} ${s.description}<br>${v === null || v === undefined ? "無資料" : v.toFixed(0) + " km/h"}${probLine}`);
   }
   renderPush(f);
+  renderAlarm(f);
   chart.update("none");
 }
 
@@ -235,15 +258,20 @@ function renderMetrics(m) {
       h += `<tr><td>${hz} 分</td><td>${name}</td>${c(r.model.mae)}${c(r.persistence.mae)}${c(r.profile.mae)}<td>${d === null ? "–" : d.toFixed(1) + "%"}</td></tr>`;
     }
   }
-  h += `</table><h3>壅塞前預警（當下 ≥40 km/h，預測 t+h 是否 &lt;40）</h3><table><tr><th>時距</th><th>子集</th><th>Precision</th><th>Recall</th><th>F1</th><th>實際壅塞數</th></tr>`;
+  h += `</table><h3>壅塞前預警（當下 ≥40 km/h，預測 t+h 是否 &lt;40）</h3><table><tr><th>時距</th><th>子集</th><th>方法</th><th>Precision</th><th>Recall</th><th>F1</th><th>實際壅塞數</th></tr>`;
   for (const [hz, subs] of Object.entries(m.warning)) {
     for (const [name, r] of Object.entries(subs)) {
-      h += `<tr><td>${hz} 分</td><td>${name}</td><td>${pct(r.model.precision)}</td><td>${pct(r.model.recall)}</td><td>${pct(r.model.f1)}</td><td>${r.model.n_pos}</td></tr>`;
+      for (const [label, x] of [["回歸模型", r.model], ["分類器", r.classifier]]) {
+        h += `<tr><td>${hz} 分</td><td>${name}</td><td>${label}</td><td>${pct(x.precision)}</td><td>${pct(x.recall)}</td><td>${pct(x.f1)}</td><td>${x.n_pos}</td></tr>`;
+      }
     }
   }
-  const o = m.onset, dv = m.diversion;
-  h += `</table><h3>壅塞起點提前量</h3><table><tr><th>起點事件數</th><th>提前偵測數</th><th>偵測率</th><th>提前量中位數（分）</th></tr>
-    <tr><td>${o.n}</td><td>${o.detected}</td><td>${pct(o.detection_rate)}</td><td>${fmt(o.median_lead_min, 1)}</td></tr></table>`;
+  const dv = m.diversion;
+  h += `</table><h3>壅塞起點提前量</h3><table><tr><th>方法</th><th>起點事件數</th><th>提前偵測數</th><th>偵測率</th><th>提前量中位數（分）</th></tr>`;
+  for (const [label, o] of [["回歸模型", m.onset.regressor], ["分類器", m.onset.classifier]]) {
+    h += `<tr><td>${label}</td><td>${o.n}</td><td>${o.detected}</td><td>${pct(o.detection_rate)}</td><td>${fmt(o.median_lead_min, 1)}</td></tr>`;
+  }
+  h += `</table>`;
   h += `<h3>分流模擬（TEST 期間上班日 06:00–10:00）</h3><table>
     <tr><td>推播事件數</td><td>${dv.push_events}</td></tr>
     <tr><td>平均預估節省：個人最快路線（naive，分鐘）</td><td>${fmt(dv.mean_saving_naive_min, 1)}</td></tr>

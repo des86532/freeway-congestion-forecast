@@ -46,6 +46,8 @@ uv run fcf notify-test
 
 ## 結構
 
+系統設計知識文件見 [docs/knowledge/](docs/knowledge/README.md)。
+
 | 檔案 | 說明 |
 |---|---|
 | `src/fcf/http.py` | SSL 修正與 tisvcloud 節流，所有對高公局的請求都經過 `fetch` |
