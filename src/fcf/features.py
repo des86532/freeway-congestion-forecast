@@ -12,6 +12,7 @@ HORIZONS = (15, 30, 60)
 N_SPEED_LAGS = 6  # speed_lag0 .. speed_lag5
 N_VOLUME_LAGS = 3
 TRAIN = ("2026-04-01", "2026-07-31")
+CLF_VALID = ("2026-07-01", "2026-07-31")  # TRAIN 內的分類器門檻驗證月
 TEST = ("2026-08-01", "2026-09-06")
 
 _NONE = "__none__"

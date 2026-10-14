@@ -29,7 +29,7 @@
 | 無資料（null） | 灰 `#9aa0a6` |
 
 - 國1平面與五楊高架在地圖上幾乎重疊，因此高架畫粗線（9px、半透明）在底，平面畫細線（4px）在上。
-- Tooltip：路線名稱、路段描述、車速（無資料顯示「無資料」）。
+- Tooltip：路線名稱、路段描述、車速（無資料顯示「無資料」）。在「預測 +30 分」模式且 frame 有 `prob` 時，多一行「+30 分壅塞機率 N%」（該路段機率為 null 時不顯示）。
 - 時間軸 slider 逐 frame 移動，右側顯示該 frame 的 `ts`。
 
 ## 推播卡（`renderPush`）
@@ -37,13 +37,17 @@
 - `decision.push` 為真：顯示「推播」徽章、入選改道用戶的訊息（`message`）、未入選用戶訊息（`stay_message`，若有），以及情境表（全部訂閱用戶改道 naive 30%、配額分流 `p*`）：替代路線預測 TT、相對增加、節省。底下註明慢路線預測比快路線多幾分鐘。
 - 否則：顯示「不推播」與 `REASON_ZH[reason]` 的中文原因，若有 `saving_naive_s` 一併顯示兩路線預測差。
 
+## 壅塞預警卡（`renderAlarm`）
+
+位於「推播」卡之後，標題「壅塞預警（未來 15／30／60 分）」。依 `["15","30","60"]` 各一列：`+{h} 分：` 後接 `frame.alarm[h]` 的每個路段「路線名 路段描述（壅塞機率%）」，以「、」連接；沒有則顯示「無」。路段名稱由 `data.corridor.segments` 依 id 查找，機率取 `frame.prob[h][id]`。若 frame 沒有 `alarm` 欄位（舊的 replay／live 檔），顯示「此資料無預警欄位：請重新執行 uv run fcf replay」。
+
 ## 路線旅行時間圖
 
 Chart.js 折線圖：國1平面／五楊高架各兩條——實際（`route_tt.actual`，實線）與預測 +30（`route_tt.pred30`，虛線），單位分鐘，垂直虛線標示目前 slider 所在 frame。
 
 ## 指標區（`renderMetrics`）
 
-讀取 `data/metrics.json`，顯示：期間、車速預測誤差 MAE（最小值標 `better`）、壅塞前預警（Precision／Recall／F1／實際壅塞數）、壅塞起點提前量、分流模擬。缺檔時顯示「尚無評估指標：請先執行 uv run fcf evaluate」。
+讀取 `data/metrics.json`，顯示：期間、車速預測誤差 MAE（最小值標 `better`）、壅塞前預警（每個時距×子集各兩列：`回歸模型` 讀 `r.model`、`分類器` 讀 `r.classifier`；欄位 Precision／Recall／F1／實際壅塞數）、壅塞起點提前量（讀 `m.onset.regressor`／`m.onset.classifier`，各一列）、分流模擬。缺檔時顯示「尚無評估指標：請先執行 uv run fcf evaluate」。舊版 `metrics.json`（沒有 `classifier` 欄位）無法顯示，需重新執行 `fcf evaluate`。
 
 ## 即時更新
 

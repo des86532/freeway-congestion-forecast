@@ -53,6 +53,7 @@
 - `ok` 時產生訊息，「最差路段」為慢路線上 `pred30` 最低的路段。
 - `p_star < PENETRATION` 時（配額未涵蓋所有訂閱用戶，有人「未入選」）才額外產生 `stay_message`。
 - `decide` 的 `actual_speeds` 參數目前未被使用（保留於介面）；判斷只依 `pred30_speeds`、`volumes`、`capacity` 與冷卻狀態。
+- 壅塞機率分類器（見 [03-features-and-models.md](03-features-and-models.md)）**不參與**分流決策與推播內容；分流仍只使用迴歸模型的 30 分預測車速。
 
 `Decision` dataclass 的欄位即 frame 的 `decision`（見 06）。
 

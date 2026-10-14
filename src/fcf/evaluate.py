@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .corridor import ENTRY_SEGMENT, ROUTES, SEG_IDS
-from .features import HORIZONS, STEP_MIN, TEST, TRAIN, build_features, targets
+from .features import CLF_VALID, HORIZONS, STEP_MIN, TEST, TRAIN, build_features, targets
 from .diversion import PENETRATION
 from .replay import Lookup, make_frames
 
@@ -19,10 +19,10 @@ REPORTS = ROOT / "reports"
 CONGESTED = 40.0
 
 
-def onset_leads(actual: np.ndarray, preds: dict[int, np.ndarray]) -> list[tuple[int, int | None]]:
+def onset_leads(actual: np.ndarray, alarms: dict[int, np.ndarray]) -> list[tuple[int, int | None]]:
     """單一路段序列。onset = 連續 ≥3 步 ≥40 後首次 <40 的時間點。
-    在 [o-60, o-5] 分內找最早的 t（當下車速 ≥40），使存在 h 滿足 t+h ∈ [o-10, o+10] 且 pred_h(t) < 40。
-    回傳 (onset 索引, 提前分鐘)；未偵測為 None。"""
+    在 [o-60, o-5] 分內找最早的 t（當下車速 ≥40），使存在 h 滿足 t+h ∈ [o-10, o+10] 且 alarms[h][t] 為真。
+    alarms[h] 為 bool 陣列（t 時刻是否預警 t+h 壅塞）。回傳 (onset 索引, 提前分鐘)；未偵測為 None。"""
     out: list[tuple[int, int | None]] = []
     n = len(actual)
     for o in range(3, n):
@@ -34,9 +34,9 @@ def onset_leads(actual: np.ndarray, preds: dict[int, np.ndarray]) -> list[tuple[
             if t < 0 or not (actual[t] >= CONGESTED):
                 continue
             hit = False
-            for h, p in preds.items():
+            for h in alarms:
                 tgt_off = off + h // STEP_MIN
-                if -10 // STEP_MIN <= tgt_off <= 10 // STEP_MIN and p[t] < CONGESTED:
+                if -10 // STEP_MIN <= tgt_off <= 10 // STEP_MIN and alarms[h][t]:
                     hit = True
                     break
             if hit:
@@ -61,9 +61,23 @@ def _prf(y_pos: np.ndarray, p_pos: np.ndarray) -> dict:
     return {"precision": prec, "recall": rec, "f1": f1, "n_pos": int(y_pos.sum()), "n_pred_pos": tp + fp}
 
 
+THRESHOLD_GRID = [round(0.05 * i, 2) for i in range(1, 20)]
+
+
+def choose_threshold(y_pos: np.ndarray, proba: np.ndarray) -> float:
+    """在 THRESHOLD_GRID 中選 F1 最大的門檻；同分取較大門檻（偏向 precision）；F1 全為 None 時回傳 0.5。"""
+    best_thr, best_f1 = None, -1.0
+    for thr in THRESHOLD_GRID:
+        f1 = _prf(y_pos, proba >= thr)["f1"]
+        if f1 is not None and f1 >= best_f1:
+            best_thr, best_f1 = thr, f1
+    return best_thr if best_thr is not None else 0.5
+
+
+
 def evaluate() -> None:
-    from .model import (load_capacity, load_dataset, load_models, load_profile,
-                        predict_from_features)
+    from .model import (load_capacity, load_classifiers, load_dataset, load_models, load_profile,
+                        predict_from_features, predict_proba_from_features)
 
     t_start, t_end = pd.Timestamp(TEST[0]), pd.Timestamp(TEST[1])
     full = load_dataset()
@@ -72,6 +86,9 @@ def evaluate() -> None:
     profile, capacity = load_profile(), load_capacity()
     feats = build_features(df, profile)
     preds = predict_from_features(feats, load_models())
+    clfs = load_classifiers()
+    probs = predict_proba_from_features(feats, clfs)
+    thr = {h: c["threshold"] for h, c in clfs.items()}
 
     ts = feats["ts"]
     in_test = ((ts >= t_start) & (ts < t_end + pd.Timedelta(days=1))).to_numpy()
@@ -79,7 +96,8 @@ def evaluate() -> None:
     am = work & (ts.dt.hour >= 6).to_numpy() & (ts.dt.hour < 10).to_numpy()
     subsets = {"all": in_test, "am_peak": in_test & am}
 
-    metrics: dict = {"period": {"train": TRAIN, "test": TEST}, "capacity": capacity}
+    metrics: dict = {"period": {"train": TRAIN, "test": TEST, "clf_valid": CLF_VALID}, "capacity": capacity,
+                     "classifier_threshold": {str(h): thr[h] for h in HORIZONS}}
     speed_err: dict = {}
     warn: dict = {}
     for h in HORIZONS:
@@ -99,28 +117,38 @@ def evaluate() -> None:
             yp = y[w] < CONGESTED
             warn.setdefault(str(h), {})[name] = {
                 "model": _prf(yp, mp[w] < CONGESTED),
+                "classifier": _prf(yp, probs[h].to_numpy()[w] >= thr[h]),
                 "profile": _prf(yp, prof[w] < CONGESTED),
             }
     metrics["speed_error"] = speed_err
     metrics["warning"] = warn
 
-    # 壅塞起點提前量
+    # 壅塞起點提前量（回歸模型：預測車速 < 40；分類器：壅塞機率 ≥ 門檻）
     sp_w = feats["speed_lag0"].unstack("seg_")[SEG_IDS]
     pr_w = {h: preds[h].unstack("seg_")[SEG_IDS] for h in HORIZONS}
+    pb_w = {h: probs[h].unstack("seg_")[SEG_IDS] for h in HORIZONS}
     in_idx = (sp_w.index >= t_start) & (sp_w.index < t_end + pd.Timedelta(days=1))
-    leads: list[int | None] = []
-    for seg in SEG_IDS:
-        a = sp_w[seg].to_numpy()
-        leads += [l for o, l in onset_leads(a, {h: pr_w[h][seg].to_numpy() for h in HORIZONS}) if in_idx[o]]
-    det = [l for l in leads if l is not None]
+
+    def _onset_summary(alarm_w: dict[int, pd.DataFrame]) -> dict:
+        leads: list[int | None] = []
+        for seg in SEG_IDS:
+            a = sp_w[seg].to_numpy()
+            alarms = {h: alarm_w[h][seg].to_numpy() for h in HORIZONS}
+            leads += [l for o, l in onset_leads(a, alarms) if in_idx[o]]
+        det = [l for l in leads if l is not None]
+        return {
+            "n": len(leads), "detected": len(det),
+            "detection_rate": len(det) / len(leads) if leads else None,
+            "median_lead_min": float(np.median(det)) if det else None,
+        }
+
     metrics["onset"] = {
-        "n": len(leads), "detected": len(det),
-        "detection_rate": len(det) / len(leads) if leads else None,
-        "median_lead_min": float(np.median(det)) if det else None,
+        "regressor": _onset_summary({h: pr_w[h] < CONGESTED for h in HORIZONS}),
+        "classifier": _onset_summary({h: pb_w[h] >= thr[h] for h in HORIZONS}),
     }
 
     # 分流模擬：TEST 期間每個上班日 06:00–10:00
-    lk = Lookup(feats, preds)
+    lk = Lookup(feats, preds, probs, thr)
     decisions = []
     n_workdays = 0
     for day, idx in pd.Series(lk.actual.index, index=lk.actual.index).groupby(lk.actual.index.normalize()):
@@ -175,6 +203,8 @@ def render_md(m: dict) -> str:
           f"- 測試期間：{m['period']['test'][0]} ～ {m['period']['test'][1]}",
           "- 走廊：湖口 → 高公局（北上），國1平面（14 段）與五楊高架（4 段），各 41.0 km",
           "- 資料：高公局 M05A 站間中位數車速（小客車），5 分鐘；壅塞定義：車速 < 40 km/h",
+          f"- 分類器門檻：於 {' ～ '.join(m['period']['clf_valid'])} 最大化 F1 選定；"
+          + "、".join(f"{h} 分 {t:.2f}" for h, t in m["classifier_threshold"].items()),
           "- `am_peak`：上班日 06:00 ≤ 預測起點時刻 < 10:00", ""]
     L += ["## 車速誤差（km/h，MAE／RMSE）", "",
           "| 時距 | 子集 | 樣本數 | 模型 MAE | 持續法 MAE | 歷史平均 MAE | 模型 RMSE | 持續法 RMSE | 歷史平均 RMSE |",
@@ -188,14 +218,16 @@ def render_md(m: dict) -> str:
           "| 時距 | 子集 | 方法 | Precision | Recall | F1 | 實際壅塞數 |", "|---|---|---|---|---|---|---|"]
     for h, subs in m["warning"].items():
         for name, r in subs.items():
-            for meth, label in (("model", "模型"), ("profile", "歷史平均")):
+            for meth, label in (("model", "回歸模型"), ("classifier", "分類器"), ("profile", "歷史平均")):
                 x = r[meth]
                 L.append(f"| {h} 分 | {name} | {label} | {_f(x['precision'], pct=True)} | {_f(x['recall'], pct=True)} | "
                          f"{_f(x['f1'], pct=True)} | {x['n_pos']} |")
-    o = m["onset"]
     L += ["", "## 壅塞起點提前量", "",
-          "| 起點事件數 | 提前偵測數 | 偵測率 | 提前量中位數（分） |", "|---|---|---|---|",
-          f"| {o['n']} | {o['detected']} | {_f(o['detection_rate'], pct=True)} | {_f(o['median_lead_min'], 1)} |"]
+          "| 方法 | 起點事件數 | 提前偵測數 | 偵測率 | 提前量中位數（分） |", "|---|---|---|---|---|"]
+    for meth, label in (("regressor", "回歸模型"), ("classifier", "分類器")):
+        o = m["onset"][meth]
+        L.append(f"| {label} | {o['n']} | {o['detected']} | {_f(o['detection_rate'], pct=True)} | "
+                 f"{_f(o['median_lead_min'], 1)} |")
     dv = m["diversion"]
     L += ["", "## 分流模擬（TEST 期間上班日 06:00–10:00，含 30 分鐘冷卻）", "",
           "| 項目 | 數值 |", "|---|---|",

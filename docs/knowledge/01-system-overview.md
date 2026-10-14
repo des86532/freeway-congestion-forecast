@@ -27,13 +27,17 @@ flowchart LR
     TDCS[高公局 TDCS M05A] -->|fetch-history| RAW[data/raw/*.tar.gz]
     ETAG[ETagPair.xml / 辦公日曆] -->|fetch-static| STATIC[data/static/]
     RAW -->|build-dataset| PQ[data/processed/corridor.parquet]
-    PQ -->|train| MODELS[models/ 迴歸模型、profile、capacity]
+    PQ -->|train| MODELS[models/ 迴歸模型、壅塞分類器、profile、capacity]
     PQ --> FEAT[features.build_features]
     MODELS --> FEAT
     FEAT --> PRED[各時距預測車速]
+    FEAT --> PROB[各時距壅塞機率 + 門檻]
     PRED -->|evaluate| REP[reports/metrics.*]
+    PROB -->|evaluate| REP
     PRED -->|replay| RJSON[dashboard/data/replay-*.json]
+    PROB -->|replay: prob / alarm| RJSON
     LIVE[高公局近期 M05A 檔] -->|live| LJSON[dashboard/data/live.json]
+    PROB -->|live: prob / alarm| LJSON
     PRED --> DIV[diversion.decide]
     DIV --> RJSON
     DIV --> LJSON
@@ -54,7 +58,7 @@ flowchart LR
 | `static.py` | 下載路段幾何與日曆 | 02 |
 | `corridor.py` | 路段定義 | 本文件 |
 | `features.py` | 特徵、profile、目標值、TRAIN／TEST 常數 | 03 |
-| `model.py` | 訓練、載入、預測 | 03 |
+| `model.py` | 迴歸與分類器的訓練、載入、預測 | 03 |
 | `evaluate.py` | 評估與 `metrics.*` | 04 |
 | `diversion.py` | 旅行時間、BPR、配額、推播判斷 | 05 |
 | `replay.py` | frame 產生、重播輸出、事件日挑選 | 06 |
@@ -72,7 +76,7 @@ flowchart LR
 | `fetch-static` | – | tisvcloud `ETagPair.xml`、DGPA 辦公日曆 | `data/static/corridor_geometry.json`、`data/static/calendar_2026.csv` |
 | `fetch-history` | `--start`、`--end`（必填）、`--min-interval`（預設 41） | tisvcloud 歷史整日檔 | `data/raw/M05A_YYYYMMDD.tar.gz` |
 | `build-dataset` | – | `data/raw/M05A_*.tar.gz` | `data/processed/corridor.parquet` |
-| `train` | – | `corridor.parquet`（TRAIN 區間） | `models/h{15,30,60}.joblib`、`profile.parquet`、`capacity.json` |
+| `train` | – | `corridor.parquet`（TRAIN 區間） | `models/h{15,30,60}.joblib`（迴歸）、`models/c{15,30,60}.joblib`（壅塞機率分類器＋門檻）、`profile.parquet`、`capacity.json` |
 | `evaluate` | – | `corridor.parquet`、`models/` | `reports/metrics.{json,md}`、`dashboard/data/metrics.json` |
 | `find-events` | `--top`（預設 5） | `corridor.parquet`（TEST 區間） | 只印出事件日表格 |
 | `replay` | `--date`（必填）、`--start`（06:00）、`--end`（10:00） | `corridor.parquet`、`models/` | `dashboard/data/replay-YYYYMMDD.json`、更新 `index.json` |

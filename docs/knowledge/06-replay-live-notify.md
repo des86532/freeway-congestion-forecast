@@ -6,13 +6,15 @@
 
 ### `Lookup`
 
-`Lookup(feats, preds)` 把 `build_features` 輸出與各時距預測轉成 `(ts × 18 路段)` 寬表（欄位順序依 `SEG_IDS`）：
+`Lookup(feats, preds, probs, thresholds)` 把 `build_features` 輸出與各時距預測轉成 `(ts × 18 路段)` 寬表（欄位順序依 `SEG_IDS`）：
 
 | 屬性 | 來源 |
 |---|---|
 | `actual` | `speed_lag0`（當下實際車速） |
 | `volume` | `volume_lag0` |
 | `pred[h]` | `preds[h]` 的預測車速 |
+| `prob[h]` | `probs[h]` 的壅塞機率 |
+| `thresholds` | `{h: 分類器門檻}`（`c{h}.joblib` 內的 `threshold`），用來判斷 `alarm` |
 
 ### `make_frames(lk, capacity, ts_list, last_push=None)`
 
@@ -28,6 +30,8 @@
 | `route_tt.actual` | `{route: 秒\|null}` | 以實際車速估算的路線旅行時間（整數秒） |
 | `route_tt.pred30` | `{route: 秒\|null}` | 以 30 分預測車速估算的路線旅行時間 |
 | `decision` | object | `Decision.to_dict()`（見 05），欄位如下 |
+| `prob` | `{"15"\|"30"\|"60": {seg_id: number}}` | 各時距壅塞機率（t+h 車速 < 40），小數 2 位 |
+| `alarm` | `{"15"\|"30"\|"60": [seg_id, ...]}` | 預警路段：`prob ≥ 該時距門檻` **且** 當下實際車速 `≥ 40`（已壅塞的路段不列入）；依 `SEG_IDS` 順序，沒有則為空 list |
 
 `decision` 欄位：`push`、`reason`、`slow`、`fast`、`saving_naive_s`、`p_star`、`saving_quota_s`、`alt_tt_naive_s`、`alt_tt_quota_s`、`message`、`stay_message`、`tt_slow_s`、`tt_fast_s`、`sys_saving_quota_veh_s`、`sys_saving_naive_veh_s`。秒數欄位四捨五入到整數秒、`p_star` 到小數 2 位、NaN 為 `null`。
 
@@ -38,7 +42,7 @@
 ### `replay(date, start="06:00", end="10:00")`
 
 1. 取資料 `[start − 1 小時, end]`（多 1 小時供 lag 使用）。無資料則結束。
-2. `build_features` → `predict_from_features` → `Lookup`。
+2. `build_features` → `predict_from_features`（車速）與 `predict_proba_from_features`（壅塞機率）→ `Lookup`。
 3. 只對 `[start, end]` 內的時間點產生 frame，冷卻狀態從當日起點重新開始。
 4. 輸出 `{"date", "corridor", "frames"}`。`corridor` 為 `corridor_json()`（18 段的 id、route、order、distance_km、description、coords）。
 
@@ -57,7 +61,8 @@
 - 輸出 `dashboard/data/live.json`：`{"date", "generated_at", "corridor", "frames"}`。時區 `Asia/Taipei`。
 - 最新 frame `decision.push` 為真且有 `--push` 才呼叫 `send_line`。
 - **例外處理**：迴圈內任何例外只記錄 `error: ...`，不中斷，下個週期重試。
-- 模型與 profile、capacity 在迴圈外載入一次。
+- 模型、分類器（`load_classifiers()`，缺檔即 `SystemExit`）與 profile、capacity 在迴圈外載入一次。
+- `--push` 的行為不變：只推分流訊息（`decision.message`），`prob`／`alarm` 不推播。
 
 ## notify.py
 

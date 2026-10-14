@@ -73,9 +73,12 @@ def to_df(slots: dict[datetime, list[tuple]]) -> pd.DataFrame:
 
 
 def run_live(push: bool = False, poll: int = 120) -> None:
-    from .model import load_capacity, load_models, load_profile, predict_from_features
+    from .model import (load_capacity, load_classifiers, load_models, load_profile,
+                        predict_from_features, predict_proba_from_features)
 
     models, profile, capacity = load_models(), load_profile(), load_capacity()
+    clfs = load_classifiers()
+    thresholds = {h: c["threshold"] for h, c in clfs.items()}
     slots: dict[datetime, list[tuple]] = {}
     frames: list[dict] = []
     last_push: datetime | None = None
@@ -107,7 +110,8 @@ def run_live(push: bool = False, poll: int = 120) -> None:
                 if new_ts:
                     df = to_df(slots)
                     feats = build_features(df, profile)
-                    lk = Lookup(feats, predict_from_features(feats, models))
+                    lk = Lookup(feats, predict_from_features(feats, models),
+                                predict_proba_from_features(feats, clfs), thresholds)
                     ts_list = [pd.Timestamp(x) for x in sorted(new_ts) if x in slots]
                     new_frames = make_frames(lk, capacity, ts_list, last_push)
                     for f in new_frames:
