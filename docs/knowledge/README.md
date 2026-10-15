@@ -15,6 +15,7 @@
 | [05-diversion.md](05-diversion.md) | 系統最佳分流：旅行時間、BPR、配額、推播判斷 |
 | [06-replay-live-notify.md](06-replay-live-notify.md) | 重播、即時模式、LINE 推播與 frame JSON 格式 |
 | [07-dashboard.md](07-dashboard.md) | 靜態儀表板的資料來源與顯示規則 |
+| [08-cli-cheatsheet.md](08-cli-cheatsheet.md) | 指令與工作流速查手冊（參數、產物與操作情境） |
 | [CHANGELOG.md](CHANGELOG.md) | 知識文件更新紀錄（由新到舊） |
 
 視覺化的專案邏輯導覽（多頁 HTML）見 [`docs/project-logic.html`](../project-logic.html)。
