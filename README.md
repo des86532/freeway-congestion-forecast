@@ -27,6 +27,8 @@ uv run fcf live --poll 120 [--push]                       # 即時模式，輸�
 uv run pytest -q
 ```
 
+詳細指令說明、參數選項與各情境工作流手冊請見 [`docs/knowledge/08-cli-cheatsheet.md`](docs/knowledge/08-cli-cheatsheet.md)。
+
 TEST 期間與 TRAIN 期間固定寫在 `src/fcf/features.py`，以便重現。
 
 ## LINE 推播設定

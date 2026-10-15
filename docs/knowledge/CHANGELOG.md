@@ -2,6 +2,16 @@
 
 由新到舊。每次功能或行為變更，在最上方新增一筆：日期、變更摘要、修改到的知識文件。
 
+## 2026-10-15 — 新增 CLI 指令與工作流速查手冊
+
+變更摘要（文件更新）：
+
+- 新增 `08-cli-cheatsheet.md`：完整整理所有 CLI 子指令（`fetch-static`、`fetch-history`、`build-dataset`、`train`、`evaluate`、`find-events`、`replay`、`notify-test`、`live`）的用途、參數、先決條件、輸入/輸出檔案與 4 種常見工作流程場景（儀表板快速展示、歷史重播、即時監控推播、全管線重跑）。
+- 更新 `docs/knowledge/README.md`：索引清單加入 `08-cli-cheatsheet.md`。
+- 更新 `README.md`：指引至 `08-cli-cheatsheet.md`。
+
+修改到的知識文件：`08-cli-cheatsheet.md`（新增）、`README.md`；另更新 `README.md`。
+
 ## 2026-10-15 — 文件校正、原始目的與專案邏輯導覽
 
 變更摘要（只改文件，未修改程式碼）：
