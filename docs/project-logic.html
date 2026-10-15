@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="這個專案不是只找「個人最快路線」。它先預測兩條平行路線的壅塞，再估算改道對替代道路造成的負載，最後決定是否推播、以及建議多少比例的用戶改道。">
+  <title>從壅塞預測，到有配額的分流 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="project-logic/style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="project-logic.html" aria-current="page">總覽</a><a href="project-logic/data.html">資料管線</a><a href="project-logic/models.html">特徵與模型</a><a href="project-logic/diversion.html">分流決策</a><a href="project-logic/runtime.html">重播與即時</a><a href="project-logic/dashboard.html">儀表板</a><a href="project-logic/evaluation.html">評估</a><a href="project-logic/doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">PROJECT LOGIC / 00</div>
+      <h1>從壅塞預測，到有配額的分流</h1>
+      <p class="hero-intro">這個專案不是只找「個人最快路線」。它先預測兩條平行路線的壅塞，再估算改道對替代道路造成的負載，最後決定是否推播、以及建議多少比例的用戶改道。</p>
+      <div class="hero-meta"><span>資料粒度：5 分鐘</span><span>走廊：18 路段 / 2 路線</span><span>訓練 2026-04-01～07-31</span><span>測試 2026-08-01～09-06</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="goal">
+        <div class="section-kicker">00 / ORIGINAL GOAL</div>
+        <h2>原始目的</h2>
+        <p class="lede">尖峰時段駕駛人往往抵達壅塞路段才知道路況。提案的核心是把傳統「壅塞後通知」提升為「<strong>壅塞前預測</strong>」：預先判斷哪些路段即將壅塞，向用路人推播替代路線與預估節省時間，提前分散車流，並提供交通管理單位分析資訊。原文收錄於 <a href="../src/../docs/knowledge/00-original-goal.md">docs/knowledge/00-original-goal.md</a>。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>原始目標</th><th>MVP 現況</th></tr></thead>
+          <tbody>
+            <tr><td>壅塞形成前預測、提前預警</td><td><span class="tag">已實作</span> 預測 +15／+30／+60 分車速；壅塞機率分類器負責預警</td></tr>
+            <tr><td>即時車流與歷史交通數據</td><td><span class="tag">已實作</span> 高公局 M05A（5 分鐘站間車速與流量，小客車）</td></tr>
+            <tr><td>CCTV 影像、天氣、事故資訊</td><td><span class="tag no">未納入</span> 事故、天氣沒有可回測的歷史資料；列為擴充</td></tr>
+            <tr><td>推播替代路線與預估節省時間</td><td><span class="tag">已實作</span> 訊息含最差路段、預測車速、建議路線、節省分鐘</td></tr>
+            <tr><td>導航、App、LINE、道路看板</td><td><span class="tag part">部分</span> 只有 LINE，且為單一收件人；其餘未實作</td></tr>
+            <tr><td>分散車流、降低整體負載</td><td><span class="tag">已實作</span> 以「系統最佳配額 p*」限制改道比例，避免替代道路回堵；用戶分組函式尚未接上推播</td></tr>
+            <tr><td>提供管理單位分析資訊</td><td><span class="tag no">未實作</span> 儀表板僅呈現預測、決策與評估</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="flow">
+        <div class="section-kicker">01 / THE BIG PICTURE</div>
+        <h2>整體流程</h2>
+        <p class="lede">CLI（<code>fcf</code>）是入口；Python 模組負責資料、預測與決策；JSON 是後端與純靜態儀表板之間的交界。訓練是離線流程，replay 和 live 共用同一套特徵、模型預測與分流判斷。</p>
+        <div class="metric-row">
+          <div class="metric"><strong>14 + 4</strong><span>國1平面 14 段、五楊高架 4 段（各 41.0 km）</span></div>
+          <div class="metric"><strong>15／30／60</strong><span>預測時距（分鐘）；分流判斷只用 +30</span></div>
+          <div class="metric"><strong>&lt; 40</strong><span>壅塞定義：站間車速 km/h</span></div>
+        </div>
+        <div class="diagram"><svg viewBox="0 0 960 300" role="img" aria-label="整體資料流">
+<defs><marker id="ah" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto"><polygon points="0 0,9 4,0 8"/></marker></defs>
+<g>
+<rect class="box g" x="20" y="20" width="200" height="76"/><text x="34" y="46">高公局 M05A / 日曆 / 幾何</text><text class="s" x="34" y="68">fetch-static、fetch-history</text><text class="s" x="34" y="84">tdcs.py、http.py（41 秒節流）</text>
+<rect class="box g" x="260" y="20" width="200" height="76"/><text x="274" y="46">corridor.parquet</text><text class="s" x="274" y="68">build-dataset：288 × 18 網格</text><text class="s" x="274" y="84">speed ffill(limit=3)</text>
+<rect class="box g" x="500" y="20" width="200" height="76"/><text x="514" y="46">build_features</text><text class="s" x="514" y="68">lag、上下游、時段、profile</text><text class="s" x="514" y="84">訓練／評估／重播／即時共用</text>
+<rect class="box a" x="740" y="20" width="200" height="76"/><text x="754" y="46">車速迴歸 + 壅塞分類器</text><text class="s" x="754" y="68">+15／+30／+60 分各一個</text><text class="s" x="754" y="84">HistGradientBoosting</text>
+<rect class="box g" x="740" y="190" width="200" height="76"/><text x="754" y="216">路線旅行時間（+30 分）</text><text class="s" x="754" y="238">國1平面 vs 五楊高架</text><text class="s" x="754" y="254">Σ 距離 ÷ max(車速, 5)</text>
+<rect class="box a" x="500" y="190" width="200" height="76"/><text x="514" y="216">BPR 配額 p*</text><text class="s" x="514" y="238">掃描 0～30%，總車輛時間最小</text><text class="s" x="514" y="254">decide：6 道判斷</text>
+<rect class="box g" x="260" y="190" width="200" height="76"/><text x="274" y="216">frame JSON</text><text class="s" x="274" y="238">actual、pred、prob、alarm、</text><text class="s" x="274" y="254">route_tt、decision</text>
+<rect class="box g" x="20" y="190" width="200" height="76"/><text x="34" y="216">儀表板 / LINE</text><text class="s" x="34" y="238">dashboard/ 靜態頁</text><text class="s" x="34" y="254">live --push → send_line</text>
+</g>
+<line x1="220" y1="58" x2="258" y2="58" marker-end="url(#ah)"/><line x1="460" y1="58" x2="498" y2="58" marker-end="url(#ah)"/><line x1="700" y1="58" x2="738" y2="58" marker-end="url(#ah)"/>
+<line x1="840" y1="96" x2="840" y2="188" marker-end="url(#ah)"/>
+<line x1="738" y1="228" x2="702" y2="228" marker-end="url(#ah)"/><line x1="498" y1="228" x2="462" y2="228" marker-end="url(#ah)"/><line x1="258" y1="228" x2="222" y2="228" marker-end="url(#ah)"/>
+</svg></div>
+        <div class="note"><strong>兩個模型的分工：</strong>迴歸模型預測車速，供旅行時間與分流決策使用；分類器直接預測「t+h 是否壅塞」，只負責預警（<code>prob</code>／<code>alarm</code>、預警卡）。分類器不參與分流決策。</div>
+      </section>
+
+      <section class="doc-section" id="pages">
+        <div class="section-kicker">02 / PAGES</div>
+        <h2>各頁導覽</h2>
+        <div class="cards">
+          <a class="card" href="project-logic/data.html"><b>01 / DATA</b><strong>資料管線</strong><span>節流、M05A 解析、288×18 網格、日曆與幾何</span></a>
+          <a class="card" href="project-logic/models.html"><b>02 / MODELS</b><strong>特徵與模型</strong><span>TRAIN／TEST、特徵、迴歸與分類器、門檻選定</span></a>
+          <a class="card" href="project-logic/diversion.html"><b>03 / DIVERSION</b><strong>分流決策</strong><span>旅行時間、BPR、p*、decide 的 6 道判斷、訊息</span></a>
+          <a class="card" href="project-logic/runtime.html"><b>04 / RUNTIME</b><strong>重播與即時</strong><span>make_frames、frame JSON、live 輪詢、LINE</span></a>
+          <a class="card" href="project-logic/dashboard.html"><b>05 / DASHBOARD</b><strong>儀表板</strong><span>地圖、推播卡、預警卡、指標區</span></a>
+          <a class="card" href="project-logic/evaluation.html"><b>06 / EVALUATION</b><strong>評估</strong><span>指標定義與 TEST 期間結果</span></a>
+          <a class="card" href="project-logic/doc-audit.html"><b>07 / AUDIT</b><strong>文件檢查</strong><span>docs 與程式碼比對：正確、已修正、實作邊界</span></a>
+          <a class="card" href="../src/../docs/knowledge/README.md"><b>REFERENCE</b><strong>知識文件</strong><span>docs/knowledge/，面向開發與維護者的完整規格</span></a>
+        </div>
+      </section>
+
+      <section class="doc-section" id="limits">
+        <div class="section-kicker">03 / WHAT IT DOES NOT CLAIM</div>
+        <h2>現況與限制</h2>
+        <ul>
+          <li>只涵蓋湖口到高公局北上走廊；事故、施工、天氣、CCTV 未納入。</li>
+          <li>重播以資料時間戳為「現在」，沒有模擬高公局檔案發布延遲（實測約 5–7 分鐘）。</li>
+          <li>旅行時間是同一時刻車速的路段加總，不是時變行進模擬。</li>
+          <li>分流效益由 BPR 模型與固定 30% 訂閱比例估算，不是實際用戶實驗。</li>
+          <li>分類器 Recall 提高的代價是 Precision 下降（誤報增加），詳見<a href="project-logic/evaluation.html">評估</a>。</li>
+          <li><code>select_for_reroute</code> 已實作但未接上推播；<code>live --push</code> 只把改道訊息送給單一 LINE 收件人。</li>
+        </ul>
+      </section>
+      <div class="pager"><span></span><a href="project-logic/data.html">資料管線 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

@@ -35,7 +35,7 @@
 ## 推播卡（`renderPush`）
 
 - `decision.push` 為真：顯示「推播」徽章、入選改道用戶的訊息（`message`）、未入選用戶訊息（`stay_message`，若有），以及情境表（全部訂閱用戶改道 naive 30%、配額分流 `p*`）：替代路線預測 TT、相對增加、節省。底下註明慢路線預測比快路線多幾分鐘。
-- 否則：顯示「不推播」與 `REASON_ZH[reason]` 的中文原因，若有 `saving_naive_s` 一併顯示兩路線預測差。
+- 否則：顯示「不推播」與 `REASON_ZH[reason]` 的中文原因（此 `REASON_ZH` 定義在 `app.js`，措辭與 `diversion.py` 的同名常數略有不同），若有 `saving_naive_s` 一併顯示兩路線預測差。
 
 ## 壅塞預警卡（`renderAlarm`）
 
@@ -47,8 +47,8 @@ Chart.js 折線圖：國1平面／五楊高架各兩條——實際（`route_tt.
 
 ## 指標區（`renderMetrics`）
 
-讀取 `data/metrics.json`，顯示：期間、車速預測誤差 MAE（最小值標 `better`）、壅塞前預警（每個時距×子集各兩列：`回歸模型` 讀 `r.model`、`分類器` 讀 `r.classifier`；欄位 Precision／Recall／F1／實際壅塞數）、壅塞起點提前量（讀 `m.onset.regressor`／`m.onset.classifier`，各一列）、分流模擬。缺檔時顯示「尚無評估指標：請先執行 uv run fcf evaluate」。舊版 `metrics.json`（沒有 `classifier` 欄位）無法顯示，需重新執行 `fcf evaluate`。
+讀取 `data/metrics.json`，顯示：訓練／測試期間（不含分類器驗證月）、車速預測誤差 MAE（最小值標 `better`）、壅塞前預警（每個時距×子集各兩列：`回歸模型` 讀 `r.model`、`分類器` 讀 `r.classifier`；欄位 Precision／Recall／F1／實際壅塞數）、壅塞起點提前量（讀 `m.onset.regressor`／`m.onset.classifier`，各一列）、分流模擬。缺檔時顯示「尚無評估指標：請先執行 uv run fcf evaluate」。舊版 `metrics.json`（沒有 `classifier` 欄位）無法顯示，需重新執行 `fcf evaluate`。
 
 ## 即時更新
 
-選擇「即時」時載入 `data/live.json`，之後每 60 秒重新載入一次（失敗則保留舊資料）；原本停在最後一個 frame 時，會跟著停在新的最後一個 frame。
+選擇「即時」時載入 `data/live.json`（讀不到時推播卡顯示「尚無即時資料：請先執行 uv run fcf live」），之後每 60 秒重新載入一次（失敗則保留舊資料）；原本停在最後一個 frame 時，會跟著停在新的最後一個 frame。

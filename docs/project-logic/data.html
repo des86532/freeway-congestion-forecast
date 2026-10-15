@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="從高公局 M05A 原始檔到連續的 5 分鐘 × 18 路段網格：節流、解析、補缺、日曆與路段定義。">
+  <title>資料怎麼進來 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html" aria-current="page">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">01 / INPUT & PREPARATION</div>
+      <h1>資料怎麼進來</h1>
+      <p class="hero-intro">從高公局 M05A 原始檔到連續的 5 分鐘 × 18 路段網格：節流、解析、補缺、日曆與路段定義。</p>
+      <div class="hero-meta"><span>原始碼：http.py、tdcs.py、dataset.py、calendar.py、static.py、corridor.py</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="http">
+        <div class="section-kicker">01 / HTTP</div>
+        <h2>唯一的對外出口：<code>http.py</code></h2>
+        <p>所有對 <code>tisvcloud.freeway.gov.tw</code> 的請求都必須經過 <code>fetch(url, min_interval=41.0)</code>。</p>
+        <ul>
+          <li><strong>SSL 修正</strong>：關閉 <code>VERIFY_X509_STRICT</code>。Python 3.13 預設 strict 會因「Missing Subject Key Identifier」驗證失敗。</li>
+          <li><strong>節流</strong>：高公局要求同一 host 請求間隔大於 40 秒，預設 41 秒。只對該 host 生效；DGPA 日曆不節流（<code>min_interval=0</code>）。</li>
+          <li><strong>重試</strong>：最多 3 次；HTTP 404 不重試；逾時、連線、SSL 錯誤會重試，每次重試前同樣節流。</li>
+        </ul>
+      </section>
+
+      <section class="doc-section" id="parse">
+        <div class="section-kicker">02 / PARSE</div>
+        <h2>M05A 解析與下載：<code>tdcs.py</code></h2>
+        <p>M05A 是<strong>無表頭</strong> CSV，欄位依序為：</p>
+        <div class="codebox">TimeStamp, GantryFrom, GantryTo, VehicleType, Speed, Volume
+2026/10/01 07:55,01F0492N,01F0467N,31,25,185</div>
+        <ul>
+          <li>只取 <code>VehicleType == "31"</code>（小客車）；路段 ID = <code>GantryFrom-GantryTo</code>，不在走廊 18 段內者略過。</li>
+          <li><code>speed &lt;= 0</code> → NaN（M05A 以 0 表示無資料）；<code>volume &lt; 0</code> → NaN；<code>volume == 0</code> 合法，保留。</li>
+          <li><code>fetch-history</code> 逐日下載整日 tar.gz；已存在且可讀者跳過，因此可中斷續傳；單日失敗只記錄，最後列出失敗日期。</li>
+        </ul>
+      </section>
+
+      <section class="doc-section" id="grid">
+        <div class="section-kicker">03 / GRID</div>
+        <h2>建立完整網格：<code>dataset.py</code></h2>
+        <ol class="steps">
+          <li><strong>去重</strong>同一 (ts, seg) 保留最後一筆。</li>
+          <li><strong>補齊網格</strong>對資料中出現的每一天，建立 288 個 5 分鐘時間點 × 18 路段；缺漏的點為 NaN。</li>
+          <li><strong>補缺口</strong><code>speed</code> 依路段 <code>ffill(limit=3)</code>，最多往後填 15 分鐘；<code>volume</code> 不填補。</li>
+          <li><strong>加上日型</strong><code>is_holiday</code>（int8），速度與流量轉 float32，輸出 <code>data/processed/corridor.parquet</code>。</li>
+        </ol>
+        <div class="warning"><strong>兩處必須一致：</strong><code>live.py</code> 的 <code>to_df</code> 對滾動資料使用同樣的規則（去重、<code>ffill(limit=3)</code>、<code>is_holiday</code>）。改其中一處就要同步另一處。</div>
+        <div class="note"><strong>為什麼先補網格？</strong>如果時間中間有缺口，直接對列做 shift 可能把「前一筆」誤當成「前 5 分鐘」。連續時間軸讓 lag 與未來目標才對得準（<code>features.to_wide</code> 也會再補一次缺日）。</div>
+      </section>
+
+      <section class="doc-section" id="static">
+        <div class="section-kicker">04 / STATIC</div>
+        <h2>辦公日曆與路段幾何</h2>
+        <ul>
+          <li><strong><code>calendar.py</code></strong>：讀 <code>data/static/calendar_2026.csv</code>（行政院人事行政總處），<code>是否放假 == 2</code> 視為放假；日曆未涵蓋（含檔案不存在）時以週六日判定。</li>
+          <li><strong><code>static.py</code></strong>：從 <code>ETagPair.xml</code> 取出走廊 18 段的 WKT <code>LINESTRING</code>，轉成 [lat, lon]；有任何路段缺幾何就不寫檔。幾何只給儀表板畫地圖，與模型無關。</li>
+          <li><strong><code>corridor.py</code></strong>：18 個路段 ID、距離、順序的唯一來源；<code>neighbors()</code> 回傳同路線的上、下游路段。</li>
+        </ul>
+        <div class="table-wrap"><table>
+          <thead><tr><th>路線</th><th>route</th><th>路段數</th><th>總長</th><th>入口路段（流量用於配額）</th></tr></thead>
+          <tbody>
+            <tr><td>國1平面</td><td><code>ground</code></td><td>14</td><td>41.0 km</td><td><code>01F0750N-01F0699N</code></td></tr>
+            <tr><td>五楊高架</td><td><code>elevated</code></td><td>4</td><td>41.0 km</td><td><code>01F0750N-01H0608N</code></td></tr>
+          </tbody>
+        </table></div>
+        <div class="codebox"><span class="comment"># 從來源到可訓練資料</span>
+uv run fcf fetch-static
+uv run fcf fetch-history --start 2026-04-01 --end 2026-09-06   <span class="comment"># 約 1.8 小時，可中斷續傳</span>
+uv run fcf build-dataset</div>
+      </section>
+      <div class="pager"><a href="../project-logic.html">← 總覽</a><a href="models.html">特徵與模型 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

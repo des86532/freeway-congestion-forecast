@@ -53,6 +53,8 @@ TRAIN／TEST 固定寫在程式碼以便重現；評估絕不使用 TEST 資料�
 
 預測 `predict_from_features(feats, models)`：以 `feature_names` 取欄位預測，結果 `clip(0, 130)`，回傳 `{h: Series(name="pred_{h}")}`。
 
+`model.predict(df_window, models, profile)` 是把 `build_features` 與 `predict_from_features` 串起來的便利函式，目前沒有任何呼叫者；實際流程都是分開呼叫。
+
 ## 壅塞機率分類器
 
 迴歸模型以「預測車速 < 40」判斷壅塞，但迴歸傾向預測平均值，壅塞前預警的 Recall 偏低（見 [04-evaluation.md](04-evaluation.md)）。因此每個時距另外訓練一個直接預測「t+h 是否壅塞」的機率分類器，用較低的機率門檻換取 Recall。

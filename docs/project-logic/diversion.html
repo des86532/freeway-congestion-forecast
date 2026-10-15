@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="先用 +30 分預測估算兩條路線的旅行時間，再用 BPR 容量模型找出不會讓替代道路回堵的最大改道比例 p*。">
+  <title>怎麼決定要不要分流 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html" aria-current="page">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">03 / SYSTEM-OPTIMAL DIVERSION</div>
+      <h1>怎麼決定要不要分流</h1>
+      <p class="hero-intro">先用 +30 分預測估算兩條路線的旅行時間，再用 BPR 容量模型找出不會讓替代道路回堵的最大改道比例 p*。</p>
+      <div class="hero-meta"><span>原始碼：diversion.py</span><span>測試：tests/test_diversion.py</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="why">
+        <div class="section-kicker">01 / WHY QUOTA</div>
+        <h2>為什麼要「配額」</h2>
+        <p class="lede">導航 App 對每個用戶各自推薦最快路線；壅塞時若所有人同時改走同一條替代道路，替代道路會被灌爆，預期的時間節省消失。系統最佳的做法是限制改道比例，挑出使整體車輛總時間最小的 <code>p*</code>。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>常數</th><th>值</th><th>意義</th></tr></thead>
+          <tbody>
+            <tr><td><code>PENETRATION</code></td><td>0.30</td><td>App 用戶佔車流比例；可改道比例上限</td></tr>
+            <tr><td><code>MIN_SAVING_S</code></td><td>300</td><td>兩路線預測 TT 差至少 5 分鐘才考慮推播</td></tr>
+            <tr><td><code>MIN_QUOTA_SAVING_S</code></td><td>60</td><td>配額分流後至少省 1 分鐘</td></tr>
+            <tr><td><code>COOLDOWN_MIN</code></td><td>30</td><td>推播冷卻期（分鐘）</td></tr>
+            <tr><td><code>P_STEP</code></td><td>0.05</td><td>掃描 p 的步長</td></tr>
+            <tr><td><code>MIN_SPEED_FOR_TT</code></td><td>5</td><td>計算旅行時間的車速下限（km/h）</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="tt">
+        <div class="section-kicker">02 / TRAVEL TIME</div>
+        <h2>旅行時間與慢／快路線</h2>
+        <div class="codebox">route_time_s = Σ ( distance_km / max(speed_kmh, 5) ) × 3600     <span class="comment"># 任一段缺值 → None</span>
+slow, fast = 預測 TT 較大者, 較小者                              <span class="comment"># 相同時 ground 為慢</span></div>
+        <p>決策使用的是 <strong>30 分鐘後的預測車速</strong> <code>pred["30"]</code>。這是以同一時刻車速估整條路線的簡化，不做時變行進模擬。</p>
+      </section>
+
+      <section class="doc-section" id="bpr">
+        <div class="section-kicker">03 / BPR & p*</div>
+        <h2>BPR 與最佳比例 <code>p*</code></h2>
+        <div class="codebox">bpr(v, c) = 1 + 0.15 × (v / c)^4                 <span class="comment"># v：入口 5 分鐘流量，c：capacity.json</span>
+
+<span class="comment"># 慢路線有比例 p 的流量改道到快路線</span>
+vs = v_slow × (1 − p)            vf = v_fast + p × v_slow
+ts = tt_slow × bpr(vs, c_slow) / bpr(v_slow, c_slow)
+tf = tt_fast × bpr(vf, c_fast) / bpr(v_fast, c_fast)
+總車輛時間 = vs × ts + vf × tf
+
+p* = argmin 總車輛時間,   p ∈ {0, 0.05, …, 0.30}      <span class="comment"># 7 個點；同分取較小 p</span></div>
+        <ul>
+          <li><strong>配額下的節省</strong> <code>saving_quota_s = ts − tf</code>；替代路線 TT 為 <code>tf</code>。</li>
+          <li><strong>naive 對照</strong>：全部訂閱用戶（p = 0.30）都改道，替代路線 TT 為 <code>alt_tt_naive_s</code>。</li>
+          <li><strong>系統車輛時間節省</strong>：改道前總車輛時間 <code>v_slow·tt_slow + v_fast·tt_fast</code> 減去改道後（配額／naive），單位為輛·秒（每 5 分鐘流量）。</li>
+        </ul>
+        <div class="note"><strong>容量在哪裡用？</strong>容量只出現在 BPR 公式內，不是推播關卡。入口流量缺漏才會擋下推播（<code>missing_volume</code>）。</div>
+      </section>
+
+      <section class="doc-section" id="decide">
+        <div class="section-kicker">04 / DECIDE</div>
+        <h2><code>decide</code>：依序檢查，任一條成立就停止</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>順序</th><th><code>reason</code></th><th>條件</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>missing_data</code></td><td>任一路線預測 TT 無法計算（預測缺值）</td></tr>
+            <tr><td>2</td><td><code>below_saving</code></td><td>慢路線 − 快路線的預測 TT &lt; 300 秒</td></tr>
+            <tr><td>3</td><td><code>missing_volume</code></td><td>任一入口流量缺漏、NaN 或 ≤ 0</td></tr>
+            <tr><td>4</td><td><code>no_benefit</code></td><td>（算完 p* 後）<code>p* == 0</code> 或 <code>saving_quota_s &lt; 60</code></td></tr>
+            <tr><td>5</td><td><code>cooldown</code></td><td>距上次推播 &lt; 30 分鐘</td></tr>
+            <tr><td>6</td><td><code>ok</code></td><td>全部通過 → <code>push = True</code></td></tr>
+          </tbody>
+        </table></div>
+        <p>注意：<code>no_benefit</code> 在 <code>cooldown</code> 之前，所以冷卻期內的時間點，如果本來就沒有效益，原因會記成 <code>no_benefit</code>。<code>decide</code> 的 <code>actual_speeds</code> 參數目前沒有被使用；判斷只依 <code>pred30_speeds</code>、<code>volumes</code>、<code>capacity</code> 與冷卻狀態。</p>
+      </section>
+
+      <section class="doc-section" id="example">
+        <div class="section-kicker">05 / WORKED EXAMPLE</div>
+        <h2>範例：2026-09-02 09:20（取自 replay 檔）</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>項目</th><th class="num">數值</th></tr></thead>
+          <tbody>
+            <tr><td>快路線（五楊高架）預測 TT</td><td class="num">1639 秒</td></tr>
+            <tr><td>p*</td><td class="num">0.10</td></tr>
+            <tr><td>替代路線 TT：全部訂閱用戶改道（naive）</td><td class="num">1763 秒（約 +2.1 分）</td></tr>
+            <tr><td>替代路線 TT：配額分流</td><td class="num">1675 秒（約 +0.6 分）</td></tr>
+            <tr><td>訊息中的改道比例</td><td class="num">0.10 ÷ 0.30 ≈ 33%</td></tr>
+          </tbody>
+        </table></div>
+        <p>因 <code>p* &lt; PENETRATION</code>，除了改道訊息外還會產生 <code>stay_message</code>（給未入選者）。案例完整文字見 <a href="../../src/../docs/proposal.md">proposal.md</a> §6.5。</p>
+      </section>
+
+      <section class="doc-section" id="messages">
+        <div class="section-kicker">06 / MESSAGES</div>
+        <h2>訊息與分組</h2>
+        <ul>
+          <li><strong>改道訊息</strong> <code>format_message</code>：預測 ts+30 分起、慢路線「最差路段」（慢路線上 <code>pred30</code> 最低者）時速將降至 x km/h；建議改走快路線，預估可省 N 分鐘；僅建議 <code>p*/0.30</code> 的訂閱用路人改道。</li>
+          <li><strong>維持原路線訊息</strong> <code>format_stay_message</code>：只有 <code>p* &lt; 0.30</code> 時才產生。</li>
+          <li>兩種訊息都附「資料來源：交通部高速公路局「交通資料庫」」。</li>
+          <li><strong>分組函式</strong> <code>select_for_reroute(user_id, date, share)</code>：<code>sha256("user|date")</code> 前 8 位十六進位 % 1000 &lt; round(share × 1000)；同用戶同一天結果固定。</li>
+        </ul>
+        <div class="bad"><strong>實作邊界：</strong><code>select_for_reroute</code> 只有測試在呼叫，推播流程沒有使用；<code>live --push</code> 只送 <code>decision.message</code> 給單一 <code>LINE_USER_ID</code>，<code>stay_message</code> 只在儀表板顯示。也就是說，「依 p* 把用戶分成入選／未入選兩組」目前是設計，不是已接通的功能。</div>
+      </section>
+      <div class="pager"><a href="models.html">← 特徵與模型</a><a href="runtime.html">重播與即時 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

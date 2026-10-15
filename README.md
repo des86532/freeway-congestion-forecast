@@ -56,3 +56,4 @@ uv run fcf notify-test
 | `src/fcf/diversion.py` | 系統最佳分流配額與推播決策 |
 | `src/fcf/evaluate.py` | 車速誤差、壅塞前預警、提前量、分流模擬 |
 | `dashboard/` | 純靜態儀表板（Leaflet + Chart.js） |
+| `docs/project-logic.html` | 專案邏輯導覽（多頁 HTML，從這裡開始看） |

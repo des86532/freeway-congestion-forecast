@@ -30,8 +30,8 @@
 | `route_tt.actual` | `{route: 秒\|null}` | 以實際車速估算的路線旅行時間（整數秒） |
 | `route_tt.pred30` | `{route: 秒\|null}` | 以 30 分預測車速估算的路線旅行時間 |
 | `decision` | object | `Decision.to_dict()`（見 05），欄位如下 |
-| `prob` | `{"15"\|"30"\|"60": {seg_id: number}}` | 各時距壅塞機率（t+h 車速 < 40），小數 2 位 |
-| `alarm` | `{"15"\|"30"\|"60": [seg_id, ...]}` | 預警路段：`prob ≥ 該時距門檻` **且** 當下實際車速 `≥ 40`（已壅塞的路段不列入）；依 `SEG_IDS` 順序，沒有則為空 list |
+| `prob` | `{"15"\|"30"\|"60": {seg_id: number\|null}}` | 各時距壅塞機率（t+h 車速 < 40），小數 2 位 |
+| `alarm` | `{"15"\|"30"\|"60": [seg_id, ...]}` | 預警路段：`prob ≥ 該時距門檻` **且** 當下實際車速 `≥ 40`（已壅塞或車速缺值的路段不列入）；依 `SEG_IDS` 順序，沒有則為空 list |
 
 `decision` 欄位：`push`、`reason`、`slow`、`fast`、`saving_naive_s`、`p_star`、`saving_quota_s`、`alt_tt_naive_s`、`alt_tt_quota_s`、`message`、`stay_message`、`tt_slow_s`、`tt_fast_s`、`sys_saving_quota_veh_s`、`sys_saving_naive_veh_s`。秒數欄位四捨五入到整數秒、`p_star` 到小數 2 位、NaN 為 `null`。
 

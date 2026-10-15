@@ -2,6 +2,17 @@
 
 由新到舊。每次功能或行為變更，在最上方新增一筆：日期、變更摘要、修改到的知識文件。
 
+## 2026-10-15 — 文件校正、原始目的與專案邏輯導覽
+
+變更摘要（只改文件，未修改程式碼）：
+
+- 新增 `00-original-goal.md`：收錄原始提案說明原文，並對照 MVP 現況。
+- 校正：`06` 補 `prob` 可為 `null`、`alarm` 排除車速缺值路段；`07` 補推播原因文字來自 `app.js` 的 `REASON_ZH`、即時模式無檔提示、指標區期間；`05`、`03` 註記未被呼叫的 `diversion.REASON_ZH` 與 `model.predict`。
+- `docs/proposal.md` §2、§3、§7、§11 加註：`select_for_reroute` 分組函式已實作但尚未接上推播，`live --push` 只送改道訊息給單一 LINE 收件人（數字不動）。
+- 新增多頁導覽 `docs/project-logic.html` 與 `docs/project-logic/*.html`（含「文件檢查」頁）。
+
+修改到的知識文件：`00-original-goal.md`（新增）、`README.md`、`03-features-and-models.md`、`05-diversion.md`、`06-replay-live-notify.md`、`07-dashboard.md`；另更新 `docs/proposal.md`、`README.md`。
+
 ## 2026-10-15 — 壅塞機率分類器（提升預警 Recall）
 
 變更摘要：

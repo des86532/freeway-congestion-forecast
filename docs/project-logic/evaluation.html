@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="只用固定 TEST 期間評估，與持續法、歷史平均兩個基準比較；數字取自 reports/metrics.md。">
+  <title>模型如何被檢查 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html" aria-current="page">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">06 / VALIDATION</div>
+      <h1>模型如何被檢查</h1>
+      <p class="hero-intro">只用固定 TEST 期間評估，與持續法、歷史平均兩個基準比較；數字取自 reports/metrics.md。</p>
+      <div class="hero-meta"><span>原始碼：evaluate.py</span><span>指令：uv run fcf evaluate</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="setup">
+        <div class="section-kicker">01 / SETUP</div>
+        <h2>怎麼評估</h2>
+        <ul>
+          <li>只評估 TEST（2026-08-01 ～ 09-06）；為了讓第一天有足夠的 lag，載入時多帶前一天，指標只統計 <code>ts</code> 落在 TEST 內的列。</li>
+          <li>子集 <code>all</code>：全部；<code>am_peak</code>：上班日且 06:00 ≤ 預測起點時刻 &lt; 10:00。</li>
+          <li>基準線：<strong>持續法</strong>（t+h 車速 = 現在車速）與<strong>歷史平均</strong>（<code>profile_speed</code>）。</li>
+          <li>壅塞定義：車速 &lt; 40 km/h。</li>
+        </ul>
+      </section>
+
+      <section class="doc-section" id="speed">
+        <div class="section-kicker">02 / SPEED ERROR</div>
+        <h2>車速誤差（km/h，MAE）</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>時距</th><th>子集</th><th class="num">模型</th><th class="num">持續法</th><th class="num">歷史平均</th></tr></thead>
+          <tbody>
+            <tr><td>15 分</td><td>all</td><td class="num">2.82</td><td class="num">3.57</td><td class="num">4.94</td></tr>
+            <tr><td>15 分</td><td>am_peak</td><td class="num">3.84</td><td class="num">5.25</td><td class="num">7.81</td></tr>
+            <tr><td>30 分</td><td>all</td><td class="num">3.42</td><td class="num">4.60</td><td class="num">5.30</td></tr>
+            <tr><td>30 分</td><td>am_peak</td><td class="num">5.24</td><td class="num">7.98</td><td class="num">9.40</td></tr>
+            <tr><td>60 分</td><td>all</td><td class="num">3.95</td><td class="num">6.16</td><td class="num">6.18</td></tr>
+            <tr><td>60 分</td><td>am_peak</td><td class="num">6.53</td><td class="num">11.26</td><td class="num">11.69</td></tr>
+          </tbody>
+        </table></div>
+        <p>時距越長，模型相對持續法的優勢越大（<code>am_peak</code> 60 分：6.53 vs 11.26）。</p>
+      </section>
+
+      <section class="doc-section" id="warning">
+        <div class="section-kicker">03 / EARLY WARNING</div>
+        <h2>壅塞前預警（Precision／Recall／F1）</h2>
+        <p>只取<strong>當下車速 ≥ 40</strong> 的列（已壅塞的不算預警）。正例：<code>y(t+h) &lt; 40</code>。預測為正：回歸模型 <code>pred &lt; 40</code>；歷史平均 <code>profile_speed &lt; 40</code>；分類器 <code>prob ≥ 門檻</code>。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>時距</th><th>子集</th><th>方法</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">F1</th><th class="num">實際壅塞數</th></tr></thead>
+          <tbody>
+            <tr><td>15 分</td><td>am_peak</td><td>回歸模型</td><td class="num">77.8%</td><td class="num">38.9%</td><td class="num">51.9%</td><td class="num">352</td></tr>
+            <tr><td>15 分</td><td>am_peak</td><td>分類器</td><td class="num">55.4%</td><td class="num">62.5%</td><td class="num">58.7%</td><td class="num">352</td></tr>
+            <tr><td>30 分</td><td>am_peak</td><td>回歸模型</td><td class="num">81.8%</td><td class="num">31.3%</td><td class="num">45.3%</td><td class="num">617</td></tr>
+            <tr><td>30 分</td><td>am_peak</td><td>分類器</td><td class="num">54.8%</td><td class="num">63.9%</td><td class="num">59.0%</td><td class="num">617</td></tr>
+            <tr><td>60 分</td><td>am_peak</td><td>回歸模型</td><td class="num">83.0%</td><td class="num">28.0%</td><td class="num">41.9%</td><td class="num">961</td></tr>
+            <tr><td>60 分</td><td>am_peak</td><td>分類器</td><td class="num">58.7%</td><td class="num">61.2%</td><td class="num">59.9%</td><td class="num">961</td></tr>
+            <tr><td>30 分</td><td>all</td><td>回歸模型</td><td class="num">80.9%</td><td class="num">19.5%</td><td class="num">31.4%</td><td class="num">1544</td></tr>
+            <tr><td>30 分</td><td>all</td><td>分類器</td><td class="num">46.3%</td><td class="num">53.4%</td><td class="num">49.6%</td><td class="num">1544</td></tr>
+          </tbody>
+        </table></div>
+        <p>其餘列（含歷史平均）見 <a href="../../src/../reports/metrics.md">reports/metrics.md</a>。</p>
+        <div class="warning"><strong>取捨：</strong>回歸模型 Precision 高、Recall 低（發出預警時多半是對的，但漏掉大部分壅塞）。分類器用較低的機率門檻換取 Recall，代價是 Precision 下降，即誤報增加。</div>
+      </section>
+
+      <section class="doc-section" id="onset">
+        <div class="section-kicker">04 / ONSET LEAD</div>
+        <h2>壅塞起點提前量</h2>
+        <ol class="steps">
+          <li><strong>起點 o</strong><code>actual[o] &lt; 40</code>，且前 3 步（15 分鐘）都 ≥ 40。</li>
+          <li><strong>掃描 t</strong>從 o 之前 60 分鐘到 5 分鐘，逐一檢查；t 當下車速須 ≥ 40。</li>
+          <li><strong>命中</strong>存在時距 h 使 t+h 落在 o ± 10 分鐘，且該方法在 t 對 h 發出預警（回歸：<code>pred_h &lt; 40</code>；分類器：<code>prob_h ≥ 門檻</code>）。</li>
+          <li><strong>提前量</strong>取最早命中的 t：提前量 = o − t（分鐘）；都沒命中為「未偵測」。</li>
+        </ol>
+        <div class="table-wrap"><table>
+          <thead><tr><th>方法</th><th class="num">起點事件數</th><th class="num">提前偵測數</th><th class="num">偵測率</th><th class="num">提前量中位數（分）</th></tr></thead>
+          <tbody>
+            <tr><td>回歸模型</td><td class="num">353</td><td class="num">167</td><td class="num">47.3%</td><td class="num">10.0</td></tr>
+            <tr><td>分類器</td><td class="num">353</td><td class="num">305</td><td class="num">86.4%</td><td class="num">30.0</td></tr>
+          </tbody>
+        </table></div>
+        <div class="warning"><strong>解讀注意：</strong>偵測率只計「有沒有提早命中」，不懲罰誤報；越容易發警報，偵測率與提前量越好看。比較兩種方法時必須搭配預警表的 Precision 一起看。</div>
+      </section>
+
+      <section class="doc-section" id="diversion">
+        <div class="section-kicker">05 / DIVERSION SIMULATION</div>
+        <h2>分流模擬</h2>
+        <p>TEST 內每個上班日 06:00–10:00，每 5 分鐘走一次 <code>make_frames</code>（含 30 分鐘冷卻），與分類器無關。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>項目</th><th class="num">數值</th></tr></thead>
+          <tbody>
+            <tr><td>模擬步數（5 分鐘）／上班日數</td><td class="num">1200 ／ 25</td></tr>
+            <tr><td>推播事件數</td><td class="num">151</td></tr>
+            <tr><td>平均預估節省：naive／配額（分鐘）</td><td class="num">10.2 ／ 9.3</td></tr>
+            <tr><td>替代路線 TT 增加：naive／配額（分鐘）</td><td class="num">1.03 ／ 0.74</td></tr>
+            <tr><td>平均 p*（上限 0.30）</td><td class="num">0.264</td></tr>
+            <tr><td>配額實際生效（p* &lt; 0.30）的推播數</td><td class="num">41</td></tr>
+            <tr><td>系統車輛時間節省：配額／naive（車輛小時，估算）</td><td class="num">2024 ／ 1774</td></tr>
+          </tbody>
+        </table></div>
+        <p>決策原因分布：below_saving=394、cooldown=633、missing_volume=1、no_benefit=21、ok=151。</p>
+        <div class="note"><strong>車輛小時怎麼算：</strong>每次推播的 <code>sys_saving_*_veh_s</code>（輛·秒，以入口 5 分鐘流量計）加總後 × 6 ÷ 3600。×6 是假設推播後 30 分鐘冷卻期內條件不變（30 分鐘 = 6 個 5 分鐘）；只含小客車，是估算值，不是實測。</div>
+      </section>
+      <div class="pager"><a href="dashboard.html">← 儀表板</a><a href="doc-audit.html">文件檢查 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

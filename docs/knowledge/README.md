@@ -7,6 +7,7 @@
 
 | 檔案 | 主題 |
 |---|---|
+| [00-original-goal.md](00-original-goal.md) | 原始提案說明（原文）與 MVP 現況對照 |
 | [01-system-overview.md](01-system-overview.md) | 問題定義、走廊、整體資料流、模組地圖、CLI 子指令 |
 | [02-data-pipeline.md](02-data-pipeline.md) | 從高公局 M05A 原始檔到 `corridor.parquet` 的資料處理 |
 | [03-features-and-models.md](03-features-and-models.md) | 特徵、模型訓練、產物 `models/` |
@@ -15,6 +16,8 @@
 | [06-replay-live-notify.md](06-replay-live-notify.md) | 重播、即時模式、LINE 推播與 frame JSON 格式 |
 | [07-dashboard.md](07-dashboard.md) | 靜態儀表板的資料來源與顯示規則 |
 | [CHANGELOG.md](CHANGELOG.md) | 知識文件更新紀錄（由新到舊） |
+
+視覺化的專案邏輯導覽（多頁 HTML）見 [`docs/project-logic.html`](../project-logic.html)。
 
 每份文件開頭的「對應原始碼」列出該文件描述的檔案；程式碼與文件不一致時，以程式碼為準，並請修正文件。
 

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="純靜態頁面：讀取 replay／live／metrics JSON，更新地圖、推播卡、預警卡、圖表與指標。">
+  <title>儀表板接到什麼 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html" aria-current="page">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">05 / PRESENTATION</div>
+      <h1>儀表板接到什麼</h1>
+      <p class="hero-intro">純靜態頁面：讀取 replay／live／metrics JSON，更新地圖、推播卡、預警卡、圖表與指標。</p>
+      <div class="hero-meta"><span>原始碼：dashboard/index.html、app.js、style.css</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="data">
+        <div class="section-kicker">01 / DATA FILES</div>
+        <h2>資料來源檔</h2>
+        <p>儀表板是純靜態頁（Leaflet 地圖 + Chart.js，CDN 載入），不執行模型，只讀 <code>dashboard/data/</code>。啟動：<code>uv run python -m http.server 8000 -d dashboard</code>。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>檔案</th><th>產生者</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td><code>index.json</code></td><td>fcf replay</td><td>重播日期清單，填入「資料」下拉選單</td></tr>
+            <tr><td><code>replay-YYYYMMDD.json</code></td><td>fcf replay</td><td>重播 frames</td></tr>
+            <tr><td><code>live.json</code></td><td>fcf live</td><td>即時 frames（不進版控）；選「即時」後每 60 秒重新載入</td></tr>
+            <tr><td><code>metrics.json</code></td><td>fcf evaluate</td><td>「模型評估指標」區</td></tr>
+          </tbody>
+        </table></div>
+        <p>選擇重播時，時間軸預設停在第一個 <code>decision.push</code> 的 frame，沒有則停在起點。</p>
+      </section>
+
+      <section class="doc-section" id="map">
+        <div class="section-kicker">02 / MAP</div>
+        <h2>地圖</h2>
+        <ul>
+          <li>切換鈕：「實際車速」顯示 <code>frame.actual</code>；「預測 +30 分」顯示 <code>frame.pred["30"]</code>。</li>
+          <li>平面與高架在地圖上近乎重疊：高架畫粗線（9px、半透明）在底，平面細線（4px）在上。</li>
+          <li>Tooltip：路線、路段描述、車速；在預測模式且有 <code>prob</code> 時多一行「+30 分壅塞機率 N%」。</li>
+        </ul>
+        <div class="table-wrap"><table>
+          <thead><tr><th>車速 km/h</th><th>顏色</th></tr></thead>
+          <tbody>
+            <tr><td>≥ 80</td><td>綠 <code>#2e9e4f</code></td></tr>
+            <tr><td>60–79</td><td>黃 <code>#e6c229</code></td></tr>
+            <tr><td>40–59</td><td>橘 <code>#ef8a1e</code></td></tr>
+            <tr><td>&lt; 40</td><td>紅 <code>#d6372f</code></td></tr>
+            <tr><td>無資料</td><td>灰 <code>#9aa0a6</code></td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="cards">
+        <div class="section-kicker">03 / CARDS</div>
+        <h2>右側三張卡片</h2>
+        <ol class="steps">
+          <li><strong>推播卡 <code>renderPush</code></strong>推播時顯示改道訊息、未入選者訊息（若有），以及情境表：全部訂閱用戶改道（naive 30%）與配額分流（p*）的替代路線預測 TT、相對增加、節省。不推播時顯示中文原因（<code>app.js</code> 自己的 <code>REASON_ZH</code>）。</li>
+          <li><strong>壅塞預警卡 <code>renderAlarm</code></strong>依 +15／+30／+60 各一列，列出 <code>frame.alarm[h]</code> 的路段與機率；沒有則顯示「無」。舊資料沒有 <code>alarm</code> 欄位時，提示重新執行 <code>fcf replay</code>。</li>
+          <li><strong>路線旅行時間圖</strong>國1平面／五楊高架各兩條：實際（實線）與 +30 預測（虛線），垂直虛線標示目前 frame。</li>
+        </ol>
+      </section>
+
+      <section class="doc-section" id="metrics">
+        <div class="section-kicker">04 / METRICS</div>
+        <h2>評估指標區</h2>
+        <p>讀 <code>data/metrics.json</code>：訓練／測試期間、車速 MAE（最小值標 <code>better</code>）、壅塞前預警（每個時距 × 子集各兩列：回歸模型、分類器）、壅塞起點提前量（回歸模型、分類器）、分流模擬。缺檔顯示「尚無評估指標：請先執行 uv run fcf evaluate」；舊版 metrics（沒有 <code>classifier</code> 欄位）無法顯示，需重新評估。</p>
+        <div class="note">數字與定義見<a href="evaluation.html">評估</a>頁。</div>
+      </section>
+      <div class="pager"><a href="runtime.html">← 重播與即時</a><a href="evaluation.html">評估 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

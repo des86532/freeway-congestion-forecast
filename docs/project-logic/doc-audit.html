@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="以程式碼為準比對 docs：數字都正確，主要落差在 proposal 把尚未接上的分組推播寫成已上線。">
+  <title>docs 內的文件正確嗎？ | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html" aria-current="page">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">07 / DOCS vs CODE</div>
+      <h1>docs 內的文件正確嗎？</h1>
+      <p class="hero-intro">以程式碼為準比對 docs：數字都正確，主要落差在 proposal 把尚未接上的分組推播寫成已上線。</p>
+      <div class="hero-meta"><span>檢查日期：2026-10-15</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="method">
+        <div class="section-kicker">01 / METHOD</div>
+        <h2>檢查方式</h2>
+        <p class="lede">逐檔讀過 <code>src/fcf/*.py</code>、<code>dashboard/*</code>、<code>tests/*</code>，與 <code>README.md</code>、<code>docs/knowledge/*</code>、<code>docs/proposal.md</code>、<code>reports/metrics.md</code> 比對；並用 <code>dashboard/data/replay-*.json</code> 驗證 proposal §6.5 的案例數字。</p>
+      </section>
+
+      <section class="doc-section" id="ok">
+        <div class="section-kicker">02 / VERIFIED</div>
+        <h2>確認正確的部分</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>文件</th><th>結果</th></tr></thead>
+          <tbody>
+            <tr><td><code>knowledge/01–04</code></td><td><span class="tag">正確</span> 走廊、CLI、資料管線、特徵、模型參數、評估定義與 <code>onset_leads</code> 範例都與程式碼一致</td></tr>
+            <tr><td><code>knowledge/05</code></td><td><span class="tag">正確</span> 常數、BPR、<code>decide</code> 的 6 道判斷順序、訊息格式、分組雜湊</td></tr>
+            <tr><td><code>knowledge/06–07</code></td><td><span class="tag">正確</span> frame schema、live 流程、儀表板配色與卡片（細節補充見下）</td></tr>
+            <tr><td><code>proposal.md</code> §6</td><td><span class="tag">正確</span> 所有表格與 <code>reports/metrics.md</code> 逐字相符</td></tr>
+            <tr><td><code>proposal.md</code> §6.5</td><td><span class="tag">正確</span> 2026-09-03 08:20（p*=0.30、替代路線 1735 秒）與 2026-09-02 09:20（p*=0.10、1639／1763／1675 秒）的案例與 replay JSON 相符</td></tr>
+            <tr><td><code>README.md</code></td><td><span class="tag">正確</span> 指令流程與模組表</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="fixed">
+        <div class="section-kicker">03 / FIXED</div>
+        <h2>已修正的落差</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>檔案</th><th>落差</th><th>處理</th></tr></thead>
+          <tbody>
+            <tr><td><code>proposal.md</code> §2、§3、§7、§11</td><td>把「sha256 分組 → 入選者收改道、未入選者收維持原路線」寫成已上線；實際 <code>select_for_reroute</code> 沒有被呼叫，<code>live --push</code> 只送改道訊息給單一收件人</td><td>加註「設計目標；函式已實作、尚未接上推播」，數字不動</td></tr>
+            <tr><td><code>knowledge/06</code></td><td><code>prob</code> 值可能為 <code>null</code>；<code>alarm</code> 也排除車速缺值的路段</td><td>補充</td></tr>
+            <tr><td><code>knowledge/07</code></td><td>推播卡原因文字來自 <code>app.js</code> 自己的 <code>REASON_ZH</code>；即時模式讀不到 <code>live.json</code> 的提示；指標區只顯示訓練／測試期間</td><td>補充</td></tr>
+            <tr><td><code>knowledge/05</code></td><td><code>diversion.REASON_ZH</code> 在 Python 端沒有被使用</td><td>註記</td></tr>
+            <tr><td><code>knowledge/03</code></td><td><code>model.predict()</code> 便利函式沒有呼叫者</td><td>註記</td></tr>
+            <tr><td>舊版 <code>project-logic.html</code></td><td>缺少分類器、<code>prob</code>／<code>alarm</code>、預警卡與評估數字；推播條件清單把「容量」誤列成一道關卡（容量只用於 BPR）</td><td>本導覽重寫並拆成多頁</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="boundary">
+        <div class="section-kicker">04 / BOUNDARIES</div>
+        <h2>仍存在的實作邊界</h2>
+        <ul>
+          <li><code>diversion.select_for_reroute</code>：只有測試呼叫；推播沒有依 p* 分組。</li>
+          <li><code>Decision.stay_message</code>：只在儀表板顯示，不推播。</li>
+          <li><code>decide(actual_speeds=…)</code>：參數保留但未使用。</li>
+          <li><code>diversion.REASON_ZH</code>、<code>model.predict</code>：沒有呼叫者。</li>
+          <li>原始提案中的 CCTV、天氣、事故、導航／App／看板推播、管理端資訊皆未實作（見<a href="../project-logic.html">總覽</a>）。</li>
+        </ul>
+        <div class="note">這些是程式碼現況，本次只更新文件措辭，沒有修改任何 Python 或儀表板程式。</div>
+      </section>
+      <div class="pager"><a href="evaluation.html">← 評估</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

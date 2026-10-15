@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="18 個路段共用全域模型：迴歸模型預測未來車速，分類器預測是否壅塞並負責預警。">
+  <title>模型看到什麼、預測什麼 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html" aria-current="page">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">02 / FEATURES & FORECAST</div>
+      <h1>模型看到什麼、預測什麼</h1>
+      <p class="hero-intro">18 個路段共用全域模型：迴歸模型預測未來車速，分類器預測是否壅塞並負責預警。</p>
+      <div class="hero-meta"><span>原始碼：features.py、model.py</span><span>評估見 evaluation 頁</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="periods">
+        <div class="section-kicker">01 / PERIODS</div>
+        <h2>期間常數：<code>features.py</code></h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>常數</th><th>值</th><th>用途</th></tr></thead>
+          <tbody>
+            <tr><td><code>TRAIN</code></td><td>2026-04-01 ～ 07-31</td><td>訓練、歷史平均 profile、入口容量</td></tr>
+            <tr><td><code>TEST</code></td><td>2026-08-01 ～ 09-06</td><td>評估與重播（模型從未見過）</td></tr>
+            <tr><td><code>CLF_VALID</code></td><td>2026-07-01 ～ 07-31</td><td>TRAIN 內，用來選分類器門檻的驗證月</td></tr>
+            <tr><td><code>HORIZONS</code></td><td>15、30、60 分</td><td>預測時距（<code>STEP_MIN = 5</code>）</td></tr>
+          </tbody>
+        </table></div>
+        <div class="good"><strong>避免測試資料洩漏：</strong>profile、容量、分類器門檻都只用 TRAIN 內的資料決定；評估絕不使用 TEST 資料調整任何參數。</div>
+      </section>
+
+      <section class="doc-section" id="features">
+        <div class="section-kicker">02 / FEATURES</div>
+        <h2>模型看到什麼：<code>build_features</code></h2>
+        <p class="lede">訓練、評估、replay、live 全都呼叫同一個 <code>build_features(df, profile)</code>。資料先轉為「連續 5 分鐘 ts × 18 路段」寬表，所以 <code>shift(k)</code> 一定是往前 k×5 分鐘；輸出每個 (ts, seg) 一列。</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>特徵</th><th>定義</th><th>直覺用途</th></tr></thead>
+          <tbody>
+            <tr><td><code>seg_idx</code>（類別）、<code>slot</code>、<code>dow</code>、<code>is_holiday</code></td><td>路段索引；一天中的 5 分鐘時段（0–287）；星期；辦公日曆放假</td><td>分辨路段差異與日內／日型規律</td></tr>
+            <tr><td><code>speed_lag0</code> … <code>speed_lag5</code>、<code>speed_delta3</code></td><td>當下與前 5 步車速；lag0 − lag3</td><td>目前狀態與近 15 分鐘變化</td></tr>
+            <tr><td><code>volume_lag0</code> … <code>volume_lag2</code></td><td>當下與前 2 步流量</td><td>車流變化</td></tr>
+            <tr><td><code>up_speed_lag0/1</code>、<code>down_speed_lag0/1</code></td><td>同路線上、下游路段的當下與前 1 步車速；路線頭尾為 NaN</td><td>壅塞沿路線傳播的訊號</td></tr>
+            <tr><td><code>profile_speed</code></td><td>(路段, slot, is_holiday) 在 TRAIN 的平均車速</td><td>該時段的典型速度；同時是評估的「歷史平均」基準線</td></tr>
+          </tbody>
+        </table></div>
+        <p><code>targets(df, h)</code> 是 t+h 的實際車速（寬表 <code>shift(-h/5)</code>），尾端或缺口處為 NaN，訓練時只用非 NaN 的列。</p>
+      </section>
+
+      <section class="doc-section" id="regressor">
+        <div class="section-kicker">03 / REGRESSOR</div>
+        <h2>迴歸模型：預測車速</h2>
+        <ul>
+          <li>每個時距一個<strong>全域</strong>（18 路段共用）<code>HistGradientBoostingRegressor</code>：<code>max_iter=300, learning_rate=0.05, max_leaf_nodes=63, categorical_features=["seg_idx"], random_state=0</code>。</li>
+          <li><code>train()</code> 同時產出 <code>profile.parquet</code> 與 <code>capacity.json</code>（各路線入口路段在 TRAIN 的 <code>volume</code> 第 95 百分位，作為 BPR 的容量）。</li>
+          <li>預測結果 <code>clip(0, 130)</code>。用途：旅行時間、分流決策、地圖的「預測 +30 分」、車速誤差評估。</li>
+        </ul>
+      </section>
+
+      <section class="doc-section" id="classifier">
+        <div class="section-kicker">04 / CLASSIFIER</div>
+        <h2>壅塞機率分類器：負責預警</h2>
+        <p>迴歸模型傾向預測平均值，壅塞前預警的 Recall 偏低（<code>am_peak</code> 30 分僅 31.3%）。因此每個時距另外訓練一個直接預測「t+h 車速 &lt; 40」的機率分類器，用較低的機率門檻換取 Recall。</p>
+        <ol class="steps">
+          <li><strong>標籤與模型</strong><code>y(t+h) &lt; 40</code>；同特徵、同參數（共用 <code>_hgb_params()</code>）的 <code>HistGradientBoostingClassifier</code>，因此迴歸模型的訓練結果不受影響。</li>
+          <li><strong>暫時分類器</strong>只用 7 月之前（4–6 月）的列 fit 一個 probe。</li>
+          <li><strong>選門檻</strong>在 7 月、且當下車速 <code>speed_lag0 ≥ 40</code> 的列預測機率，呼叫 <code>choose_threshold</code>：在 0.05～0.95 的網格中挑 F1 最大者，同分取較大門檻；F1 全為 None 時回傳 0.5。</li>
+          <li><strong>重新 fit</strong>丟掉 probe，以整個 TRAIN 重新 fit 最終分類器，門檻一併存進 <code>c{h}.joblib</code>。</li>
+        </ol>
+        <div class="table-wrap"><table>
+          <thead><tr><th>時距</th><th class="num">門檻</th></tr></thead>
+          <tbody><tr><td>15 分</td><td class="num">0.20</td></tr><tr><td>30 分</td><td class="num">0.20</td></tr><tr><td>60 分</td><td class="num">0.25</td></tr></tbody>
+        </table></div>
+        <div class="warning"><strong>分類器只管預警：</strong>它的輸出用於 frame 的 <code>prob</code>／<code>alarm</code>、預警卡和評估；<code>diversion.decide</code> 仍只使用迴歸模型的 +30 分預測車速。</div>
+      </section>
+
+      <section class="doc-section" id="artifacts">
+        <div class="section-kicker">05 / ARTIFACTS</div>
+        <h2><code>models/</code> 內的產物</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>檔案</th><th>內容</th></tr></thead>
+          <tbody>
+            <tr><td><code>h15/30/60.joblib</code></td><td>各時距迴歸模型 + feature_names</td></tr>
+            <tr><td><code>c15/30/60.joblib</code></td><td>各時距分類器 + feature_names + threshold</td></tr>
+            <tr><td><code>profile.parquet</code></td><td>TRAIN 歷史平均車速</td></tr>
+            <tr><td><code>capacity.json</code></td><td>各路線入口流量 95 百分位</td></tr>
+          </tbody>
+        </table></div>
+        <p><code>models/</code> 被 <code>.gitignore</code> 排除；用 <code>uv run fcf train</code> 重建。任一 <code>c{h}.joblib</code> 不存在時，replay／evaluate／live 會直接結束並提示重新訓練。</p>
+      </section>
+      <div class="pager"><a href="data.html">← 資料管線</a><a href="diversion.html">分流決策 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>

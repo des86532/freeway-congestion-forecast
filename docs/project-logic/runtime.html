@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="replay 與 live 各自負責取得時間序列與輸出，預測與決策都走 make_frames。">
+  <title>兩種執行模式，同一條決策路徑 | 專案邏輯導覽</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="masthead"><span>FCF / SYSTEM MAP</span><nav aria-label="頁面導覽"><a href="../project-logic.html">總覽</a><a href="data.html">資料管線</a><a href="models.html">特徵與模型</a><a href="diversion.html">分流決策</a><a href="runtime.html" aria-current="page">重播與即時</a><a href="dashboard.html">儀表板</a><a href="evaluation.html">評估</a><a href="doc-audit.html">文件檢查</a></nav></div>
+  <div class="page">
+    <header class="hero">
+      <div class="eyebrow">04 / REPLAY & LIVE</div>
+      <h1>兩種執行模式，同一條決策路徑</h1>
+      <p class="hero-intro">replay 與 live 各自負責取得時間序列與輸出，預測與決策都走 make_frames。</p>
+      <div class="hero-meta"><span>原始碼：replay.py、live.py、notify.py</span></div>
+    </header>
+    <div class="content">
+
+      <section class="doc-section" id="frames">
+        <div class="section-kicker">01 / SHARED PATH</div>
+        <h2>共用路徑：<code>make_frames</code></h2>
+        <p class="lede">evaluate 的分流模擬、replay、live 都走同一條路徑，所以評估數字、儀表板重播和即時輸出的決策規則完全一致。</p>
+        <div class="codebox">build_features  →  predict_from_features (車速) ─┐
+                   predict_proba_from_features (壅塞機率) ─┴→  Lookup  →  make_frames  →  diversion.decide</div>
+        <ul>
+          <li><code>Lookup(feats, preds, probs, thresholds)</code> 把輸出轉成 (ts × 18 路段) 寬表：<code>actual</code>（<code>speed_lag0</code>）、<code>volume</code>（<code>volume_lag0</code>）、<code>pred[h]</code>、<code>prob[h]</code>、各時距門檻。</li>
+          <li><code>make_frames</code> 對每個時間點產生一個 frame，並維護冷卻狀態：決策 <code>push</code> 為真時更新 <code>last_push</code>。</li>
+        </ul>
+      </section>
+
+      <section class="doc-section" id="schema">
+        <div class="section-kicker">02 / FRAME JSON</div>
+        <h2>frame 格式</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>欄位</th><th>說明</th></tr></thead>
+          <tbody>
+            <tr><td><code>ts</code></td><td><code>YYYY-MM-DDTHH:MM</code>，預測起點時刻</td></tr>
+            <tr><td><code>actual</code></td><td>{seg_id: 當下實際車速或 null}，小數 1 位</td></tr>
+            <tr><td><code>pred</code></td><td>{"15"|"30"|"60": {seg_id: t+h 預測車速或 null}}</td></tr>
+            <tr><td><code>route_tt.actual</code>／<code>.pred30</code></td><td>各路線旅行時間（整數秒）：以實際車速／+30 預測車速估算</td></tr>
+            <tr><td><code>decision</code></td><td><code>Decision.to_dict()</code>：push、reason、slow、fast、saving_naive_s、p_star、saving_quota_s、alt_tt_*、message、stay_message、tt_*、sys_saving_*</td></tr>
+            <tr><td><code>prob</code></td><td>{"15"|"30"|"60": {seg_id: 壅塞機率或 null}}，小數 2 位</td></tr>
+            <tr><td><code>alarm</code></td><td>{"15"|"30"|"60": [seg_id…]}：<code>prob ≥ 該時距門檻</code> 且當下實際車速 ≥ 40（已壅塞或缺值者不列入）</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="doc-section" id="modes">
+        <div class="section-kicker">03 / REPLAY & LIVE</div>
+        <h2>兩種執行模式</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>模式</th><th>資料怎麼來</th><th>每個時間點做什麼</th><th>輸出</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Replay</strong><br>fcf replay</td><td>讀 <code>corridor.parquet</code>，取 <code>[start − 1 小時, end]</code>（多 1 小時供 lag）</td><td>只對 <code>[start, end]</code>（預設 06:00–10:00）產生 frame；冷卻狀態從當日起點重新開始</td><td><code>dashboard/data/replay-YYYYMMDD.json</code>，並更新 <code>index.json</code></td></tr>
+            <tr><td><strong>Live</strong><br>fcf live</td><td>列目錄找最新 M05A 檔；冷啟動往回抓 7 個時點，之後只補新檔；單一時點 HTTP 錯誤只記錄</td><td>保留最近 7 個時點（<code>WINDOW</code>）做特徵與預測；frames 只保留最後 12 個</td><td><code>dashboard/data/live.json</code>（不進版控）</td></tr>
+          </tbody>
+        </table></div>
+        <ul>
+          <li><strong>live 迴圈</strong>每 <code>--poll</code> 秒（預設 120）檢查一次；迴圈內任何例外只記錄 <code>error: ...</code>，下個週期重試。時區 <code>Asia/Taipei</code>。</li>
+          <li><strong>載入一次</strong>：模型、分類器、profile、capacity 在迴圈外載入。</li>
+          <li><strong><code>find-events</code></strong>：挑 TEST 內分流效益最大的上班日（以實際車速估算的 平面 TT − 高架 TT 最大值排序），只印出表格。</li>
+        </ul>
+        <div class="codebox"><span class="comment"># 歷史案例</span>
+uv run fcf find-events --top 5
+uv run fcf replay --date 2026-09-03
+<span class="comment"># 即時（加 --push 才呼叫 LINE）</span>
+uv run fcf live --poll 120
+uv run fcf live --poll 120 --push</div>
+      </section>
+
+      <section class="doc-section" id="line">
+        <div class="section-kicker">04 / LINE</div>
+        <h2>LINE 推播：<code>notify.py</code></h2>
+        <ul>
+          <li>缺 <code>LINE_CHANNEL_ACCESS_TOKEN</code> 或 <code>LINE_USER_ID</code> 任一 → dry-run，只印出 <code>[DRY-RUN] LINE -&gt; ...</code>。</li>
+          <li>否則 POST <code>https://api.line.me/v2/bot/message/push</code>；非 200 或 HTTPError 丟 <code>RuntimeError</code>。</li>
+          <li><code>live --push</code> 只在最新 frame 的 <code>decision.push</code> 為真時送出 <code>decision.message</code>；<code>prob</code>／<code>alarm</code> 與 <code>stay_message</code> 都不推播。</li>
+        </ul>
+        <div class="warning"><strong>資料延遲：</strong>replay 以資料時間戳為「現在」，沒有模擬檔案發布延遲（實測約 5–7 分鐘），實際可用提前量會相應縮短。</div>
+      </section>
+      <div class="pager"><a href="diversion.html">← 分流決策</a><a href="dashboard.html">儀表板 →</a></div>
+    </div>
+    <footer><span>FREEWAY CONGESTION FORECAST / INTERNAL GUIDE</span><span>依目前程式實作整理；指標數字取自 reports/metrics.md</span></footer>
+  </div>
+</body>
+</html>
